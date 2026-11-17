@@ -1,0 +1,42 @@
+{
+  "name": "@tuitv/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "node scripts/icons.mjs && next build && node scripts/postbuild.mjs",
+    "start": "serve out -l 3000",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests --dir src",
+    "test:e2e": "playwright test",
+    "i18n:check": "node scripts/i18n-check.mjs"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.13.0",
+    "@tuitv/business-rules": "workspace:*",
+    "@tuitv/design-system": "workspace:*",
+    "@tuitv/m3u-parser": "workspace:*",
+    "@tuitv/shared-models": "workspace:*",
+    "@tuitv/validation": "workspace:*",
+    "hls.js": "^1.7.4",
+    "idb": "^8.0.4",
+    "lucide-react": "latest",
+    "mpegts.js": "^1.8.2",
+    "next": "^16.4.6",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "serve": "^14.2.0",
+    "sharp": "^0.34.0",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^5.9.0",
+    "vitest": "^5.1.0"
+  }
+}

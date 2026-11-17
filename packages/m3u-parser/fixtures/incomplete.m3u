@@ -1,0 +1,14 @@
+#EXTINF:-1 group-title="Sem cabeçalho",Primeiro canal
+https://stream.example.org/primeiro.m3u8
+#EXTINF:-1 group-title="Sem cabeçalho",Canal sem endereço
+#EXTINF:-1 group-title="Sem cabeçalho",Canal depois do incompleto
+https://stream.example.org/depois.m3u8
+https://stream.example.org/solto/Canal_Sem_Extinf.m3u8
+isto não é um endereço
+#EXTINF:-1,Endereço inválido seguido de válido
+endereco-relativo/sem-esquema.m3u8
+https://stream.example.org/valido.m3u8
+# comentário qualquer
+#EXTINF:
+https://stream.example.org/extinf-vazio.m3u8
+#EXTINF:-1 group-title="Sem cabeçalho",Último sem endereço

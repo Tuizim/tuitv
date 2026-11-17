@@ -1,0 +1,14 @@
+#EXTM3U url-tvg="https://example.org/guia.xml" x-tvg-url="https://example.org/outro.xml"
+#EXTINF:-1 tvg-id="canal.um" tvg-name="Canal Um HD" tvg-logo="https://example.org/logos/um.png" group-title="Abertos",Canal Um HD
+https://stream.example.org/um/index.m3u8
+#EXTINF:-1 tvg-id="canal.dois" tvg-logo="https://example.org/logos/dois.png" group-title="Abertos",Canal Dois
+https://stream.example.org/dois/index.m3u8
+#EXTINF:-1 tvg-id="esporte.1" group-title="Esportes",Esporte 1
+http://stream.example.org:8080/esporte1.ts
+#EXTINF:-1 group-title="Notícias",Notícias 24h
+https://stream.example.org/noticias/playlist.m3u8?quality=hd
+
+#EXTINF:-1 tvg-id="canal.um" tvg-name="Canal Um SD" group-title="Abertos",Canal Um SD
+https://stream.example.org/um-sd/index.m3u8
+#EXTINF:-1 tvg-id="canal.dois" tvg-logo="https://example.org/logos/dois.png" group-title="Abertos",Canal Dois
+https://backup.example.org/dois/index.m3u8

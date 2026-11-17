@@ -1,0 +1,34 @@
+# Testes
+
+| Camada | Ferramenta | Comando | O que cobre |
+| --- | --- | --- | --- |
+| Pacotes TypeScript | Vitest | `pnpm test` | Parser, classificação, ids estáveis, séries, busca, XMLTV, backup, PIN, validação de endereços |
+| Núcleo Kotlin | JUnit | `./gradlew :kotlin-core:test` | Mesmos arquivos de referência do TypeScript; backup cifrado gerado pela Web |
+| Web, ponta a ponta | Playwright | `pnpm build && pnpm test:e2e` | Fluxos reais sobre o build estático, em desktop e celular |
+
+## Cenários de ponta a ponta (`apps/web/e2e/app.spec.ts`)
+
+- Primeiro acesso sem cadastro; menu na ordem do PRD.
+- Importação por arquivo e por endereço; categorias, filtro, favoritos; persistência após recarregar.
+- Atualização sem duplicar e preservando favoritos; renomear, desativar e excluir listas.
+- Recusa de endereço interno, conteúdo que não é M3U, fonte sem CORS e erro HTTP.
+- Registros incompletos não interrompem a importação.
+- Filmes, séries, temporadas, episódio assistido, página de reprodução e busca global.
+- Guia XMLTV por endereço, grade e programa atual.
+- Backup com senha: exportar, excluir tudo, senha errada, restaurar.
+- Controle parental: categoria oculta nas telas e na busca até informar o PIN.
+- Lista de 30 mil canais: importação, virtualização e tempo de busca.
+- PWA: manifesto, service worker, uso sem internet e ausência de requisições a terceiros.
+- Layout móvel sem rolagem horizontal.
+
+Um servidor local (`e2e/fixture-server.mjs`) faz o papel de fonte remota.
+
+## Verificação manual de reprodução
+
+O Chromium do Playwright não inclui H.264/AAC, então a reprodução real foi conferida no Google Chrome com transmissões públicas de teste: HLS ao vivo, seleção de legendas, MP4, WebM, avanço automático de episódio, retomada de posição, canal fora do ar e endereço RTMP.
+
+## Ainda não coberto
+
+- Firefox, Safari e Edge (apenas Chrome/Chromium foram exercitados).
+- Metas de tempo do PRD em dispositivos de referência: só há medições em máquina de desenvolvimento.
+- Aplicativos Android e Android TV, que ainda não existem.

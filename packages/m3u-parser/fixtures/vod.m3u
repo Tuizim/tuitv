@@ -1,0 +1,27 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="" tvg-name="O Grande Filme (2019)" tvg-logo="https://img.example.org/capas/grande.jpg" group-title="Filmes | Ação",O Grande Filme (2019)
+http://vod.example.org:80/movie/usuario/senha/1001.mp4
+#EXTINF:7260 tvg-logo="https://img.example.org/capas/outro.jpg" group-title="Filmes | Drama" description="Um drama sobre recomeços.",Outro Filme - 2021
+https://vod.example.org/arquivos/outro-filme.mkv
+#EXTINF:-1 tvg-logo="https://img.example.org/capas/serie.jpg" group-title="Séries | Drama",A Série S01E01
+http://vod.example.org:80/series/usuario/senha/2001.mp4
+#EXTINF:-1 tvg-logo="https://img.example.org/capas/serie.jpg" group-title="Séries | Drama",A Série S01E02
+http://vod.example.org:80/series/usuario/senha/2002.mp4
+#EXTINF:-1 tvg-logo="https://img.example.org/capas/serie.jpg" group-title="Séries | Drama",A Série S02 E01 - O Retorno
+http://vod.example.org:80/series/usuario/senha/2003.mp4
+#EXTINF:-1 group-title="Séries | Comédia",Risadas - 1x05
+https://vod.example.org/arquivos/risadas-1x05.mkv
+#EXTINF:-1 group-title="Séries | Comédia",Risadas - 1x04
+https://vod.example.org/arquivos/risadas-1x04.mkv
+#EXTINF:-1 group-title="Novelas",Coração Valente Temporada 2 Episódio 13
+https://vod.example.org/hls/coracao-2-13/master.m3u8
+#EXTINF:-1 group-title="Séries | Anime",Aventura.T03.E120.1080p
+https://vod.example.org/arquivos/aventura.t03e120.mp4
+#EXTINF:-1 group-title="Filmes e Séries",Canal de Filmes 24h
+https://stream.example.org/live/usuario/senha/55.ts
+#EXTINF:-1 tvg-type="movie" group-title="Documentários",Planeta Azul [2006]
+https://vod.example.org/hls/planeta/master.m3u8
+#EXTINF:-1 group-title="Séries | Drama",Minissérie Sem Marcação
+http://vod.example.org:80/series/usuario/senha/3001.mp4
+#EXTINF:-1 group-title="Esportes",Jogo 3x2 Melhores Momentos
+https://stream.example.org/esportes/melhores.m3u8

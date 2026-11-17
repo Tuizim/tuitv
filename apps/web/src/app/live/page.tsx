@@ -1,0 +1,243 @@
+'use client';
+
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { Search, Tv } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { normalizeText, programmeProgress } from '@tuitv/business-rules';
+import type { MediaItem } from '@tuitv/shared-models';
+import { FavoriteButton, UnavailableBadge } from '@/components/cards';
+import { Player } from '@/components/Player';
+import { Thumb } from '@/components/Thumb';
+import { Dropdown, Empty, cx } from '@/components/ui';
+import { kvGet, kvSet } from '@/lib/db';
+import { useNow, useNowNext } from '@/lib/hooks';
+import { formatHour, useT } from '@/lib/i18n';
+import { useStore } from '@/lib/store';
+
+const ALL = '\u0000all';
+const FAVORITES = '\u0000fav';
+
+export default function LivePage() {
+  return (
+    <Suspense>
+      <Live />
+    </Suspense>
+  );
+}
+
+function Live() {
+  const t = useT();
+  const params = useSearchParams();
+  const lib = useStore((s) => s.lib);
+  const favorites = useStore((s) => s.favorites);
+  const recordPlayback = useStore((s) => s.recordPlayback);
+
+  const [group, setGroup] = useState<string>(params.get('g') ?? ALL);
+  const [filter, setFilter] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(params.get('c'));
+  const restored = useRef(false);
+
+  // Recupera o último canal assistido (PRD RF-001).
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    if (params.get('c')) return;
+    void kvGet<string>('lastLive').then((id) => {
+      if (id) setSelectedId((current) => current ?? id);
+    });
+  }, [params]);
+
+  const channels = useMemo(() => {
+    let list = lib.live;
+    if (group === FAVORITES) list = list.filter((c) => favorites.has(c.id));
+    else if (group !== ALL) list = list.filter((c) => c.group === group);
+    const q = normalizeText(filter);
+    if (q) {
+      const index = new Map(lib.search.live.map((s) => [s.value, s.norm]));
+      list = list.filter((c) => index.get(c)?.includes(q));
+    }
+    return list;
+  }, [lib, group, filter, favorites]);
+
+  const selected = selectedId ? lib.byId.get(selectedId) : undefined;
+  const current = selected?.kind === 'live' ? selected : undefined;
+
+  const select = (item: MediaItem) => {
+    setSelectedId(item.id);
+    void kvSet('lastLive', item.id);
+  };
+
+  /** Troca rápida de canais dentro da lista filtrada. */
+  const step = (delta: number) => {
+    if (!channels.length) return;
+    const index = current ? channels.findIndex((c) => c.id === current.id) : -1;
+    const next = channels[(index + delta + channels.length) % channels.length];
+    if (next) select(next);
+  };
+
+  if (lib.live.length === 0) {
+    return (
+      <Empty icon={<Tv className="size-10" />} title={t('Nenhum canal disponível')}>
+        <p>{t('Adicione uma lista em “Minhas listas” para ver os canais aqui.')}</p>
+      </Empty>
+    );
+  }
+
+  return (
+    <div className="-mx-4 -mt-4 grid lg:mx-0 lg:mt-0 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="sticky top-16 z-20 bg-bg lg:static">
+        {current ? (
+          <Player
+            key="player"
+            item={current}
+            className="aspect-video w-full lg:rounded-2xl"
+            onPrev={() => step(-1)}
+            onNext={() => step(1)}
+            onProgress={(played) => recordPlayback(played, 0, 0)}
+          />
+        ) : (
+          <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-black text-center text-white/70 lg:rounded-2xl">
+            <Tv className="size-10" />
+            <p className="text-sm">{t('Escolha um canal para começar a assistir.')}</p>
+          </div>
+        )}
+        {current && <NowPlaying item={current} />}
+      </div>
+
+      <div className="flex min-h-0 flex-col px-4 pt-3 lg:sticky lg:top-20 lg:h-[calc(100dvh-104px)] lg:px-0 lg:pt-0">
+        <div className="mb-2 grid grid-cols-2 gap-2">
+          <Dropdown
+            label={t('Categoria')}
+            value={group}
+            onChange={setGroup}
+            options={[
+              { value: ALL, label: t('Todas as categorias'), hint: lib.live.length.toLocaleString() },
+              { value: FAVORITES, label: `★ ${t('Favoritos')}` },
+              ...lib.liveGroups.map((g) => ({ value: g.name, label: g.name, hint: g.count.toLocaleString() })),
+            ]}
+          />
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder={t('Filtrar canais')}
+              aria-label={t('Filtrar canais')}
+              className="h-10 w-full rounded-lg border border-line bg-surface pr-3 pl-9 text-sm placeholder:text-muted/70 focus:border-accent focus:outline-none"
+            />
+          </div>
+        </div>
+        <ChannelList channels={channels} selectedId={current?.id} onSelect={select} />
+      </div>
+    </div>
+  );
+}
+
+function ChannelList({ channels, selectedId, onSelect }: { channels: MediaItem[]; selectedId?: string; onSelect: (item: MediaItem) => void }) {
+  const t = useT();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: channels.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 60,
+    overscan: 8,
+  });
+
+  // Mantém o canal atual visível ao trocar por teclado/controle.
+  useEffect(() => {
+    if (!selectedId) return;
+    const index = channels.findIndex((c) => c.id === selectedId);
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: 'auto' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  if (channels.length === 0) return <p className="px-2 py-8 text-center text-sm text-muted">{t('Nenhum canal encontrado.')}</p>;
+
+  return (
+    <div ref={scrollRef} className="h-[55dvh] overflow-y-auto rounded-xl border border-line bg-surface lg:h-auto lg:flex-1" data-testid="channel-list">
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((row) => {
+          const channel = channels[row.index]!;
+          return (
+            <div key={channel.id} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: row.size, transform: `translateY(${row.start}px)` }}>
+              <ChannelRow channel={channel} selected={channel.id === selectedId} onSelect={onSelect} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ChannelRow({ channel, selected, onSelect }: { channel: MediaItem; selected: boolean; onSelect: (item: MediaItem) => void }) {
+  const { current } = useNowNext(channel, 0);
+  return (
+    <div className={cx('flex h-full items-center gap-1 border-b border-line/60 pr-1', selected && 'bg-accent/15')}>
+      <button
+        type="button"
+        onClick={() => onSelect(channel)}
+        aria-current={selected ? 'true' : undefined}
+        className="flex h-full min-w-0 flex-1 items-center gap-3 px-3 text-left -outline-offset-2 hover:bg-surface-2"
+      >
+        <Thumb src={channel.logo} name={channel.name} className="size-10 shrink-0 rounded-lg" />
+        <span className="min-w-0 flex-1">
+          <span className={cx('flex items-center gap-2 text-sm font-medium', selected && 'text-accent')}>
+            <span className="truncate">{channel.name}</span>
+            <UnavailableBadge id={channel.id} />
+          </span>
+          <span className="block truncate text-xs text-muted">{current?.title ?? channel.group ?? ''}</span>
+        </span>
+      </button>
+      <FavoriteButton id={channel.id} kind="live" playlistId={channel.playlistId} />
+    </div>
+  );
+}
+
+/** Informações de programação do canal em reprodução (PRD RF-005 / RF-009). */
+function NowPlaying({ item }: { item: MediaItem }) {
+  const t = useT();
+  const language = useStore((s) => s.settings.language);
+  const { current, next } = useNowNext(item, 3);
+  const now = useNow();
+  return (
+    <div className="border-b border-line px-4 py-3 lg:mt-3 lg:rounded-2xl lg:border lg:bg-surface">
+      <div className="flex items-center gap-3">
+        <Thumb src={item.logo} name={item.name} className="hidden size-12 shrink-0 rounded-lg sm:flex" />
+        <div className="min-w-0 flex-1">
+          <h1 className="flex items-center gap-2 text-base font-bold">
+            <span className="truncate">{item.name}</span>
+            <UnavailableBadge id={item.id} />
+          </h1>
+          <p className="truncate text-xs text-muted">{item.group ?? t('Sem categoria')}</p>
+        </div>
+        <FavoriteButton id={item.id} kind="live" playlistId={item.playlistId} withLabel />
+      </div>
+      {current && (
+        <div className="mt-3 hidden sm:block">
+          <p className="text-sm">
+            <span className="mr-2 rounded bg-accent/15 px-1.5 py-0.5 text-[11px] font-bold text-accent uppercase">{t('Agora')}</span>
+            <span className="font-semibold">{current.title}</span>
+            <span className="ml-2 text-xs text-muted">
+              {formatHour(current.start, language)} – {formatHour(current.stop, language)}
+            </span>
+          </p>
+          <div className="mt-2 h-1 overflow-hidden rounded-full bg-bg">
+            <div className="h-full bg-accent" style={{ width: `${programmeProgress(current, now) * 100}%` }} />
+          </div>
+          {current.description && <p className="mt-2 line-clamp-2 text-xs text-muted">{current.description}</p>}
+          {next.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-xs text-muted">
+              {next.map((programme) => (
+                <li key={programme.start} className="truncate">
+                  <span className="tabular-nums">{formatHour(programme.start, language)}</span> · {programme.title}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

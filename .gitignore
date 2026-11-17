@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+test-results/
+playwright-report/
+.gradle/
+build/
+local.properties
+*.apk
+.idea/
+.DS_Store

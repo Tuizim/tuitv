@@ -1,0 +1,61 @@
+# TuiTV
+
+**Seu entretenimento em um só lugar.** Player IPTV multiplataforma, 100% local: sem conta, sem cadastro, sem login e sem backend.
+
+O usuário importa as próprias listas M3U/M3U8, organiza canais, filmes e séries, consulta o guia de programação (XMLTV) e reproduz conteúdos de fontes autorizadas. Todos os dados ficam no dispositivo.
+
+Especificação: [PRD.pdf](PRD.pdf) (resumo em [docs/PRD.md](docs/PRD.md)).
+
+## Estado atual
+
+| Parte | Estado |
+| --- | --- |
+| Pacotes compartilhados (modelos, parser M3U, regras, validação, design system) | Prontos e testados |
+| **TuiTV Web** (React + Next.js, PWA) | Pronto: P0 e P1 do PRD, testado de ponta a ponta |
+| Núcleo Kotlin (`packages/kotlin-core`) — parser e regras equivalentes ao TypeScript | Pronto e testado com os mesmos arquivos de referência |
+| TuiTV Android / Android TV (Compose, Room, Media3) | **Não iniciado** — depende da instalação dos pacotes do Android SDK |
+
+## Estrutura
+
+```
+apps/
+  web/                 Aplicação Web (Next.js, exportação estática, PWA)
+packages/
+  shared-models/       Tipos de dados (listas, itens, favoritos, histórico, EPG, backup)
+  m3u-parser/          Interpretador M3U/M3U8 incremental + fixtures/ (arquivos de referência)
+  business-rules/      Classificação, séries, busca, EPG XMLTV, backup, controle parental
+  validation/          Validação de endereços, limites, máscaras de credenciais, backup
+  design-system/       Cores, logotipo e tema (Tailwind v4)
+  kotlin-core/         Porte Kotlin/JVM do parser e das regras (base dos apps Android)
+docs/                  PRD, arquitetura e testes
+```
+
+## Como usar
+
+Requisitos: Node 22+, pnpm 12 (`corepack enable pnpm`), JDK 17+ (apenas para o núcleo Kotlin).
+
+```bash
+pnpm install
+pnpm dev              # Web em http://localhost:3000
+pnpm build            # gera apps/web/out (site estático + service worker)
+pnpm test             # testes unitários (TypeScript)
+pnpm typecheck
+pnpm test:e2e         # Playwright sobre o build estático (rode `pnpm build` antes)
+./gradlew :kotlin-core:test   # testes do núcleo Kotlin
+```
+
+Na primeira execução dos testes de ponta a ponta: `pnpm --filter @tuitv/web exec playwright install chromium`.
+
+## Publicação da Web
+
+`apps/web/out` contém apenas arquivos estáticos; qualquer hospedagem estática serve. Não há API nem banco.
+Use **HTTPS**: a PWA, a cifragem local de credenciais, o backup com senha e o controle parental dependem de contexto seguro.
+Para publicar em subcaminho, defina `NEXT_PUBLIC_BASE_PATH=/caminho` no build.
+
+## Limitações conhecidas da Web
+
+São restrições dos navegadores, tratadas com mensagens claras no aplicativo:
+
+- **CORS**: listas, guias e transmissões só funcionam se o servidor de origem permitir acesso pelo navegador. Para listas e guias, a alternativa é baixar o arquivo e importá-lo.
+- **Conteúdo misto**: com o TuiTV em `https://`, endereços `http://` são bloqueados.
+- **Formatos**: tocam HLS (`.m3u8`, via HLS.js), MPEG-TS (via mpegts.js) e os formatos nativos do navegador (MP4, WebM…). Quando o endereço não revela o formato, o player o detecta pelos primeiros bytes. RTMP, RTSP e UDP não tocam em navegadores.

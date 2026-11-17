@@ -1,0 +1,103 @@
+{
+  "headerFound": false,
+  "headerAttrs": {},
+  "errors": [
+    {
+      "line": 3,
+      "code": "missing-url"
+    },
+    {
+      "line": 7,
+      "code": "invalid-url"
+    },
+    {
+      "line": 9,
+      "code": "invalid-url"
+    },
+    {
+      "line": 12,
+      "code": "malformed-extinf"
+    },
+    {
+      "line": 14,
+      "code": "missing-url"
+    }
+  ],
+  "items": [
+    {
+      "key": "a3f78b567e4d6641",
+      "kind": "live",
+      "name": "Primeiro canal",
+      "url": "https://stream.example.org/primeiro.m3u8",
+      "logo": null,
+      "group": "Sem cabeçalho",
+      "tvgId": null,
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "0dc16516624b2995",
+      "kind": "live",
+      "name": "Canal depois do incompleto",
+      "url": "https://stream.example.org/depois.m3u8",
+      "logo": null,
+      "group": "Sem cabeçalho",
+      "tvgId": null,
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "21c1cbcd06417828",
+      "kind": "live",
+      "name": "Canal Sem Extinf",
+      "url": "https://stream.example.org/solto/Canal_Sem_Extinf.m3u8",
+      "logo": null,
+      "group": null,
+      "tvgId": null,
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "701eafa80eafbbcb",
+      "kind": "live",
+      "name": "Endereço inválido seguido de válido",
+      "url": "https://stream.example.org/valido.m3u8",
+      "logo": null,
+      "group": null,
+      "tvgId": null,
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "6083acc916c841a0",
+      "kind": "live",
+      "name": "extinf-vazio",
+      "url": "https://stream.example.org/extinf-vazio.m3u8",
+      "logo": null,
+      "group": null,
+      "tvgId": null,
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    }
+  ]
+}

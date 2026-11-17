@@ -1,0 +1,100 @@
+{
+  "headerFound": true,
+  "headerAttrs": {
+    "url-tvg": "https://example.org/guia.xml",
+    "x-tvg-url": "https://example.org/outro.xml"
+  },
+  "errors": [],
+  "items": [
+    {
+      "key": "c4b75f4b00ed88f0",
+      "kind": "live",
+      "name": "Canal Um HD",
+      "url": "https://stream.example.org/um/index.m3u8",
+      "logo": "https://example.org/logos/um.png",
+      "group": "Abertos",
+      "tvgId": "canal.um",
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "b298b62922cb0058",
+      "kind": "live",
+      "name": "Canal Dois",
+      "url": "https://stream.example.org/dois/index.m3u8",
+      "logo": "https://example.org/logos/dois.png",
+      "group": "Abertos",
+      "tvgId": "canal.dois",
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "2afd2d7b2b44e7c6",
+      "kind": "live",
+      "name": "Esporte 1",
+      "url": "http://stream.example.org:8080/esporte1.ts",
+      "logo": null,
+      "group": "Esportes",
+      "tvgId": "esporte.1",
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "68de8745c9e0e8d8",
+      "kind": "live",
+      "name": "Notícias 24h",
+      "url": "https://stream.example.org/noticias/playlist.m3u8?quality=hd",
+      "logo": null,
+      "group": "Notícias",
+      "tvgId": null,
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "0797416e7ab27851",
+      "kind": "live",
+      "name": "Canal Um SD",
+      "url": "https://stream.example.org/um-sd/index.m3u8",
+      "logo": null,
+      "group": "Abertos",
+      "tvgId": "canal.um",
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    },
+    {
+      "key": "b298b62922cb0058-2",
+      "kind": "live",
+      "name": "Canal Dois",
+      "url": "https://backup.example.org/dois/index.m3u8",
+      "logo": "https://example.org/logos/dois.png",
+      "group": "Abertos",
+      "tvgId": "canal.dois",
+      "seriesTitle": null,
+      "seriesKey": null,
+      "season": null,
+      "episode": null,
+      "year": null,
+      "duration": null
+    }
+  ]
+}

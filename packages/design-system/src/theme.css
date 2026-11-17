@@ -1,0 +1,43 @@
+/* Tema TuiTV para Tailwind CSS v4. Importar depois de `@import "tailwindcss"`. */
+:root {
+  /* Variação mais escura do azul-marinho oficial (#101827), usada como fundo da interface. */
+  --tui-bg: #070c16;
+  --tui-bg-deep: #04070d;
+  --tui-surface: #101827;
+  --tui-surface-2: #172b46;
+  --tui-line: #1c2a42;
+  --tui-text: #ffffff;
+  --tui-muted: #93a4bb;
+  --tui-accent: #38bdf8;
+  --tui-accent-ink: #101827;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --tui-bg: #f3f6fb;
+  --tui-bg-deep: #e6ecf5;
+  --tui-surface: #ffffff;
+  --tui-surface-2: #eaf1fa;
+  --tui-line: #d3ddea;
+  --tui-text: #101827;
+  --tui-muted: #55657c;
+  --tui-accent: #0284c7;
+  --tui-accent-ink: #ffffff;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--tui-bg);
+  --color-bg-deep: var(--tui-bg-deep);
+  --color-surface: var(--tui-surface);
+  --color-surface-2: var(--tui-surface-2);
+  --color-line: var(--tui-line);
+  --color-ink: var(--tui-text);
+  --color-muted: var(--tui-muted);
+  --color-accent: var(--tui-accent);
+  --color-accent-ink: var(--tui-accent-ink);
+  --color-danger: #f87171;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+}

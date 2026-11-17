@@ -1,0 +1,16 @@
+﻿#EXTM3U
+#EXTINF:-1 tvg-id="" tvg-logo="https://example.org/a.png" group-title="Variedades, Cultura",Arte & Música: São João, ao vivo
+https://stream.example.org/arte.m3u8
+#EXTINF:-1 tvg-id=infantil.1 group-title=Infantil,Crianças Ñandú 日本語
+https://stream.example.org/kids.m3u8
+#EXTINF:0,Rádio Coração
+#EXTGRP:Rádios
+#EXTVLCOPT:http-user-agent=TuiTV/1.0
+#EXTVLCOPT:http-referrer=https://example.org/
+https://stream.example.org/radio.mp3
+#EXTINF:-1 tvg-name="Só TVG Name" group-title="Variedades, Cultura",
+https://stream.example.org/tvgname.m3u8
+#EXTINF:-1 TVG-ID="Maiusculas.br" Group-Title="Abertos" tvg-logo="javascript:alert(1)",Atributos Maiúsculos
+rtmp://stream.example.org/live/maiusculas
+#EXTINF:-1 group-title="Aspas" tvg-name="Com "aspas" internas",Nome após atributos quebrados
+https://stream.example.org/aspas.m3u8
