@@ -4,3 +4,5 @@ packages:
   - "packages/*"
 allowBuilds:
   sharp: true
+  # O postinstall do core-js só imprime uma mensagem; não precisa rodar.
+  core-js: false
