@@ -1,0 +1,341 @@
+package tv.tui.tuitv.ui.screens
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import kotlinx.coroutines.delay
+import tv.tui.core.ContentKind
+import tv.tui.core.GroupCount
+import tv.tui.core.MediaItem
+import tv.tui.core.NowNext
+import tv.tui.core.programmeProgress
+import tv.tui.tuitv.data.GroupFilter
+import tv.tui.tuitv.data.Programme
+import tv.tui.tuitv.ui.Route
+import tv.tui.tuitv.ui.Txt
+import tv.tui.tuitv.ui.components.EmptyState
+import tv.tui.tuitv.ui.components.ListRow
+import tv.tui.tuitv.ui.components.Loading
+import tv.tui.tuitv.ui.components.Muted
+import tv.tui.tuitv.ui.components.PosterCard
+import tv.tui.tuitv.ui.components.RemoteImage
+import tv.tui.tuitv.ui.components.RequestFocus
+import tv.tui.tuitv.ui.components.ScreenTitle
+import tv.tui.tuitv.ui.components.rememberFocusMemory
+import tv.tui.tuitv.ui.library
+import tv.tui.tuitv.ui.navigator
+import tv.tui.tuitv.ui.play
+import tv.tui.tuitv.ui.rememberFavoriteToggle
+import tv.tui.tuitv.ui.theme.TuiColors
+
+/** Filtro de categoria serializado em texto (para sobreviver à navegação): "*" todos, "" sem categoria. */
+private fun filterOf(key: String): GroupFilter = when (key) {
+    "*" -> GroupFilter.All
+    "" -> GroupFilter.None
+    else -> GroupFilter.Named(key)
+}
+
+private fun keyOf(group: GroupCount) = group.name
+
+/**
+ * Coluna de categorias. A categoria em foco é aplicada após uma breve pausa (navegação rápida
+ * pelo controle não dispara consultas a cada passo); OK aplica na hora e leva o foco ao conteúdo.
+ */
+@Composable
+private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier, width: Int = 260) {
+    val focusManager = LocalFocusManager.current
+    var pending by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pending) {
+        val key = pending ?: return@LaunchedEffect
+        delay(350)
+        onSelect(key)
+    }
+    val memory = rememberFocusMemory("groups")
+    val state = rememberLazyListState()
+    LazyColumn(
+        modifier.width(width.dp).fillMaxHeight(),
+        state = state,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
+    ) {
+        val all = listOf(GroupCount("*", groups?.sumOf { it.count } ?: 0)) + (groups ?: emptyList())
+        itemsIndexed(all, key = { _, g -> "g:" + g.name }) { index, group ->
+            val key = keyOf(group)
+            val label = when (key) {
+                "*" -> Txt.ALL
+                "" -> Txt.NO_GROUP
+                else -> key
+            }
+            ListRow(
+                title = label,
+                trailing = Txt.number(group.count),
+                selected = key == selected,
+                onFocus = { pending = key },
+                onClick = {
+                    pending = null
+                    onSelect(key)
+                    focusManager.moveFocus(FocusDirection.Right)
+                },
+                modifier = memory.item(index),
+            )
+        }
+    }
+}
+
+@Composable
+fun LiveScreen() {
+    val library = library()
+    val navigator = navigator()
+    val toggleFavorite = rememberFavoriteToggle()
+    var groupKey by rememberSaveable { mutableStateOf("*") }
+    val groups by remember { library.groups(ContentKind.LIVE) }.collectAsStateWithLifecycle(null)
+    val items by remember(groupKey) { library.items(ContentKind.LIVE, filterOf(groupKey)) }.collectAsStateWithLifecycle(null)
+    val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
+    val memory = rememberFocusMemory("channels", groupKey)
+    val listState = rememberLazyListState()
+
+    Column(Modifier.fillMaxSize()) {
+        ScreenTitle(Txt.LIVE, subtitle = items?.let { Txt.plural(it.size, "canal", "canais") + " · " + Txt.LONG_PRESS_HINT })
+        Row(Modifier.fillMaxSize()) {
+            GroupColumn(groups, groupKey, { groupKey = it })
+            Spacer(Modifier.width(20.dp))
+            val list = items
+            when {
+                list == null -> Loading(Modifier.weight(1f))
+                list.isEmpty() -> EmptyState(Txt.EMPTY_GROUP, Modifier.weight(1f))
+                else -> {
+                    LazyColumn(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
+                    ) {
+                        itemsIndexed(list, key = { _, item -> item.id }) { index, item ->
+                            ChannelRow(
+                                number = index + 1,
+                                item = item,
+                                epgVersion = epgVersion,
+                                onClick = { navigator.play(list, item) },
+                                onLongClick = { toggleFavorite(item.id, item.kind, item.playlistId) },
+                                modifier = memory.item(index),
+                            )
+                        }
+                    }
+                    LaunchedEffect(groupKey) {
+                        if (memory.index >= list.size) memory.index = 0
+                        listState.scrollToItem(memory.index)
+                    }
+                    RequestFocus(memory.requester, groupKey)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelRow(number: Int, item: MediaItem, epgVersion: Int, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
+    val library = library()
+    val epg by produceState<NowNext<Programme>?>(null, item.id, epgVersion) { value = library.nowNext(item) }
+    val current = epg?.current
+    ListRow(
+        title = item.name,
+        subtitle = current?.let { "${Txt.time(it.start)}  ${it.title}" } ?: item.group,
+        progress = current?.let { programmeProgress(it.start, it.stop, System.currentTimeMillis()) },
+        onClick = onClick,
+        onLongClick = onLongClick,
+        modifier = modifier,
+        leading = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(number.toString(), style = MaterialTheme.typography.bodyMedium, color = TuiColors.Muted, modifier = Modifier.width(44.dp))
+                RemoteImage(item.logo, item.name, Modifier.size(width = 72.dp, height = 44.dp))
+            }
+        },
+    )
+}
+
+/** Filmes ou séries: categorias à esquerda e grade de capas. */
+@Composable
+fun CatalogScreen(kind: ContentKind) {
+    val library = library()
+    val navigator = navigator()
+    val toggleFavorite = rememberFavoriteToggle()
+    var groupKey by rememberSaveable(kind) { mutableStateOf("*") }
+    val groups by remember(kind) { library.groups(kind) }.collectAsStateWithLifecycle(null)
+    val memory = rememberFocusMemory(kind, groupKey)
+    val gridState = rememberLazyGridState()
+    val title = if (kind == ContentKind.MOVIE) Txt.MOVIES else Txt.SERIES
+
+    val movies by remember(groupKey, kind) {
+        if (kind == ContentKind.MOVIE) library.items(kind, filterOf(groupKey)) else kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsStateWithLifecycle(null)
+    val series by remember(groupKey, kind) {
+        if (kind == ContentKind.SERIES) library.series(filterOf(groupKey)) else kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsStateWithLifecycle(null)
+
+    val count = if (kind == ContentKind.MOVIE) movies?.size else series?.size
+    Column(Modifier.fillMaxSize()) {
+        ScreenTitle(title, subtitle = count?.let { if (kind == ContentKind.MOVIE) Txt.plural(it, "filme", "filmes") else Txt.plural(it, "série", "séries") })
+        Row(Modifier.fillMaxSize()) {
+            GroupColumn(groups, groupKey, { groupKey = it })
+            Spacer(Modifier.width(20.dp))
+            val loaded = if (kind == ContentKind.MOVIE) movies != null else series != null
+            when {
+                !loaded -> Loading(Modifier.weight(1f))
+                count == 0 -> EmptyState(Txt.EMPTY_GROUP, Modifier.weight(1f))
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(150.dp),
+                        state = gridState,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentPadding = PaddingValues(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                    ) {
+                        if (kind == ContentKind.MOVIE) {
+                            itemsIndexed(movies!!, key = { _, m -> m.id }) { index, movie ->
+                                PosterCard(
+                                    title = movie.name,
+                                    image = movie.logo,
+                                    caption = movie.year?.toString(),
+                                    onClick = { navigator.open(Route.MovieDetail(movie.id)) },
+                                    onLongClick = { toggleFavorite(movie.id, movie.kind, movie.playlistId) },
+                                    modifier = memory.item(index),
+                                )
+                            }
+                        } else {
+                            itemsIndexed(series!!, key = { _, s -> s.id }) { index, s ->
+                                PosterCard(
+                                    title = s.title,
+                                    image = s.logo,
+                                    caption = Txt.plural(s.episodes, "episódio", "episódios"),
+                                    onClick = { navigator.open(Route.SeriesDetail(s.playlistId, s.seriesKey)) },
+                                    onLongClick = { toggleFavorite(s.id, ContentKind.SERIES, s.playlistId) },
+                                    modifier = memory.item(index),
+                                )
+                            }
+                        }
+                    }
+                    LaunchedEffect(groupKey) {
+                        if (memory.index >= (count ?: 0)) memory.index = 0
+                        gridState.scrollToItem(memory.index)
+                    }
+                    RequestFocus(memory.requester, groupKey)
+                }
+            }
+        }
+    }
+}
+
+/** Guia de programação: categorias, canais com o programa atual e a grade do canal em foco. */
+@Composable
+fun GuideScreen() {
+    val library = library()
+    val navigator = navigator()
+    val sources by library.epgSources.collectAsStateWithLifecycle()
+    var groupKey by rememberSaveable { mutableStateOf("*") }
+    val groups by remember { library.groups(ContentKind.LIVE) }.collectAsStateWithLifecycle(null)
+    val items by remember(groupKey) { library.items(ContentKind.LIVE, filterOf(groupKey)) }.collectAsStateWithLifecycle(null)
+    val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
+    var focused by remember { mutableStateOf<MediaItem?>(null) }
+    val memory = rememberFocusMemory("guide", groupKey)
+
+    Column(Modifier.fillMaxSize()) {
+        ScreenTitle(Txt.GUIDE, subtitle = if (sources.isEmpty()) "Nenhum guia (XMLTV) adicionado. Adicione um em Listas." else null)
+        Row(Modifier.fillMaxSize()) {
+            GroupColumn(groups, groupKey, { groupKey = it }, width = 220)
+            Spacer(Modifier.width(16.dp))
+            val list = items
+            when {
+                list == null -> Loading(Modifier.weight(1f))
+                list.isEmpty() -> EmptyState(Txt.EMPTY_GROUP, Modifier.weight(1f))
+                else -> {
+                    LazyColumn(
+                        Modifier.width(360.dp).fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
+                    ) {
+                        itemsIndexed(list, key = { _, item -> item.id }) { index, item ->
+                            ChannelRow(
+                                number = index + 1,
+                                item = item,
+                                epgVersion = epgVersion,
+                                onClick = { navigator.play(list, item) },
+                                onLongClick = {},
+                                modifier = memory.item(index).onFocusChanged { if (it.isFocused) focused = item },
+                            )
+                        }
+                    }
+                    RequestFocus(memory.requester, groupKey)
+                    Spacer(Modifier.width(20.dp))
+                    Schedule(focused, epgVersion, Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Schedule(item: MediaItem?, epgVersion: Int, modifier: Modifier) {
+    val library = library()
+    val programmes by produceState<List<Programme>?>(null, item?.id, epgVersion) {
+        val now = System.currentTimeMillis()
+        value = item?.let { library.schedule(it, now - 3_600_000L, now + 24 * 3_600_000L) }
+    }
+    Column(modifier.fillMaxHeight().padding(top = 8.dp)) {
+        if (item == null) return@Column
+        Text(item.name, style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(8.dp))
+        val list = programmes
+        when {
+            list == null -> Muted(Txt.LOADING)
+            list.isEmpty() -> Muted("Sem programação para este canal.")
+            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                val now = System.currentTimeMillis()
+                itemsIndexed(list, key = { _, p -> p.rowId }) { _, p ->
+                    val live = p.start <= now && p.stop > now
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(
+                            "${Txt.time(p.start)} – ${Txt.time(p.stop)}   ${p.title}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (live) TuiColors.Cyan else TuiColors.White,
+                        )
+                        p.description?.let { Muted(it, maxLines = 2) }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -2,7 +2,7 @@
 // Kotlin/JVM puro (sem dependência do Android SDK): parser M3U, classificação, chaves estáveis,
 // validação de endereços e backup — com as MESMAS regras dos pacotes TypeScript.
 plugins {
-    kotlin("jvm") version "2.4.21"
+    alias(libs.plugins.kotlin.jvm)
 }
 
 kotlin {
@@ -18,8 +18,8 @@ java {
 
 dependencies {
     // org.json faz parte do Android; aqui é necessário apenas para compilar e testar na JVM.
-    compileOnly("org.json:json:20250517")
-    testImplementation("org.json:json:20250517")
+    compileOnly(libs.json)
+    testImplementation(libs.json)
     testImplementation(kotlin("test"))
 }
 

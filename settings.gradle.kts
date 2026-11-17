@@ -17,3 +17,7 @@ rootProject.name = "TuiTV"
 
 include(":kotlin-core")
 project(":kotlin-core").projectDir = file("packages/kotlin-core")
+
+// Aplicativo Android TV / Fire TV.
+include(":android-tv")
+project(":android-tv").projectDir = file("apps/android-tv")

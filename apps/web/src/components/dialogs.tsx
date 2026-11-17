@@ -1,15 +1,20 @@
 'use client';
 
-import { FileUp, Link2 } from 'lucide-react';
+import { FileUp, KeyRound, Link2 } from 'lucide-react';
 import { useRef, useState, type FormEvent } from 'react';
 import { isValidPin } from '@tuitv/business-rules';
+import { normalizeXtreamHost, xtreamEpgUrl, xtreamPlaylistUrl } from '@tuitv/validation';
+import { ImportError } from '@/lib/net';
 import { importErrorText, useT } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { Button, Field, Input, Modal, Notice, Spinner, cx } from './ui';
 
-type Mode = 'url' | 'file';
+type Mode = 'url' | 'login' | 'file';
 
-/** Adicionar lista M3U/M3U8 ou guia XMLTV — por endereço ou por arquivo local (PRD RF-003 / RF-009). */
+/**
+ * Adicionar lista M3U/M3U8 (por link, por login host/usuário/senha no formato Xtream Codes ou por arquivo)
+ * ou guia XMLTV (por endereço ou arquivo) — PRD RF-003 / RF-009.
+ */
 export function AddSourceDialog({
   kind,
   initialMode = 'url',
@@ -30,6 +35,10 @@ export function AddSourceDialog({
   const [mode, setMode] = useState<Mode>(initialMode);
   const [name, setName] = useState('');
   const [url, setUrl] = useState(initialUrl);
+  const [host, setHost] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +56,19 @@ export function AddSourceDialog({
     setBusy(true);
     setError(null);
     try {
-      const input = { name, url: mode === 'url' ? url : undefined, file: mode === 'file' ? (file ?? undefined) : undefined };
+      let input: { name: string; url?: string; file?: File; epgUrl?: string } = {
+        name,
+        url: mode === 'url' ? url : undefined,
+        file: mode === 'file' ? (file ?? undefined) : undefined,
+      };
+      if (mode === 'login') {
+        if (!host.trim() || !username.trim() || !password.trim()) throw new ImportError('login-missing');
+        const base = normalizeXtreamHost(host);
+        if (!base) throw new ImportError('url-malformed');
+        const login = { host: base, username, password };
+        // Sem nome, a lista leva o nome do servidor; o guia do mesmo login fica disponível na página do guia.
+        input = { name: name.trim() || new URL(base).hostname, url: xtreamPlaylistUrl(login), epgUrl: xtreamEpgUrl(login) };
+      }
       if (isPlaylist) {
         const playlist = await importPlaylist(input);
         toast(t('Lista “{name}” importada: {n} itens.', { name: playlist.name, n: playlist.itemCount }), 'success');
@@ -86,8 +107,9 @@ export function AddSourceDialog({
     <Modal title={isPlaylist ? t('Adicionar lista') : t('Adicionar guia de programação')} onClose={busy ? () => undefined : onClose}>
       <form onSubmit={submit} className="space-y-4">
         <div role="tablist" className="flex gap-1 rounded-lg bg-bg p-1">
-          {tab('url', t('Por endereço'), <Link2 className="size-4" />)}
-          {tab('file', t('Por arquivo'), <FileUp className="size-4" />)}
+          {tab('url', isPlaylist ? t('Link M3U') : t('Por endereço'), <Link2 className="size-4" />)}
+          {isPlaylist && tab('login', t('Login'), <KeyRound className="size-4" />)}
+          {tab('file', isPlaylist ? t('Arquivo') : t('Por arquivo'), <FileUp className="size-4" />)}
         </div>
 
         <Field label={t('Nome')} hint={t('Opcional. Ajuda a identificar a origem.')}>
@@ -102,7 +124,46 @@ export function AddSourceDialog({
           />
         </Field>
 
-        {mode === 'url' ? (
+        {mode === 'login' ? (
+          <div className="space-y-4">
+            <Field label={t('Host (servidor)')} hint={t('Endereço do servidor enviado pelo provedor, com a porta, se houver.')}>
+              <Input
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                inputMode="url"
+                placeholder="http://servidor.com:8080"
+                disabled={busy}
+                name="host"
+                autoComplete="off"
+                spellCheck={false}
+                data-autofocus
+              />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t('Usuário')}>
+                <Input value={username} onChange={(e) => setUsername(e.target.value)} disabled={busy} name="username" autoComplete="off" spellCheck={false} />
+              </Field>
+              <Field label={t('Senha')}>
+                <div className="flex gap-2">
+                  <Input
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type={showPassword ? 'text' : 'password'}
+                    disabled={busy}
+                    name="password"
+                    autoComplete="off"
+                  />
+                  <Button variant="ghost" onClick={() => setShowPassword((v) => !v)} disabled={busy}>
+                    {showPassword ? t('Ocultar') : t('Mostrar')}
+                  </Button>
+                </div>
+              </Field>
+            </div>
+            <p className="text-xs text-muted">
+              {t('Os dados ficam apenas neste dispositivo e são usados para montar o endereço da lista do provedor.')}
+            </p>
+          </div>
+        ) : mode === 'url' ? (
           <Field
             label={isPlaylist ? t('Endereço M3U/M3U8') : t('Endereço XMLTV')}
             hint={t('O download é feito diretamente pelo seu navegador. O endereço fica guardado apenas neste dispositivo.')}

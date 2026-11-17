@@ -49,6 +49,15 @@ createServer((req, res) => {
       if (query.get('action') === 'get_series') return json([{ series_id: 9, name: 'Minha Série (2021)', plot: 'Sinopse da série.', genre: 'Drama', rating: '8' }]);
       return json({});
     }
+    // Login Xtream Codes (host, usuário e senha): usuário "joão", senha "s&nha".
+    if (path === '/get.php' || path === '/xmltv.php') {
+      const query = new URL(req.url, 'http://x').searchParams;
+      if (query.get('username') !== 'joão' || query.get('password') !== 's&nha') return res.writeHead(401, cors).end();
+      if (path === '/xmltv.php') return res.writeHead(200, { ...cors, 'content-type': 'text/xml' }).end(epg());
+      if (query.get('type') !== 'm3u_plus') return res.writeHead(400, cors).end();
+      // Sem url-tvg no cabeçalho: o guia vem do xmltv.php do mesmo login.
+      return res.writeHead(200, cors).end(readFileSync(new URL('basic.m3u', fixtures), 'utf8').replace(/^#EXTM3U[^\n]*/, '#EXTM3U'));
+    }
     if (path === '/epg.xml') return res.writeHead(200, { ...cors, 'content-type': 'text/xml' }).end(epg());
     if (path === '/big.m3u') return res.writeHead(200, cors).end(big(30000));
     if (path === '/nocors.m3u') {

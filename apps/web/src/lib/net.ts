@@ -5,6 +5,7 @@ export type ImportErrorCode =
   | 'url-malformed'
   | 'url-scheme'
   | 'url-private'
+  | 'login-missing'
   | 'offline'
   | 'mixed-content'
   | 'network-or-cors'

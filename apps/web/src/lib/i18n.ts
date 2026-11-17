@@ -29,6 +29,7 @@ const IMPORT_ERRORS: Record<ImportErrorCode, string> = {
   'url-empty': 'Informe o endereço.',
   'url-malformed': 'O endereço não é válido. Use um endereço completo, começando com http:// ou https://.',
   'url-scheme': 'Apenas endereços http:// e https:// são aceitos.',
+  'login-missing': 'Informe o host, o usuário e a senha.',
   'url-private': 'Este endereço aponta para a rede local ou interna. Para usá-lo, ative “Permitir endereços da rede local” nas Configurações.',
   offline: 'Sem conexão com a internet. A biblioteca já importada continua disponível.',
   'mixed-content': 'O navegador bloqueou o endereço http:// porque o TuiTV está aberto em https://. Use um endereço https:// ou baixe o arquivo e importe-o pelo dispositivo.',

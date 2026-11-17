@@ -3,7 +3,7 @@
 import { FileText, FileUp, Globe, Link2, ListVideo, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { Playlist } from '@tuitv/shared-models';
-import { maskUrl } from '@tuitv/validation';
+import { maskUrl, parseXtreamUrl } from '@tuitv/validation';
 import { AddSourceDialog, ConfirmDialog } from '@/components/dialogs';
 import { Button, Empty, Field, Input, Modal, Notice, PageHeader, Switch } from '@/components/ui';
 import { formatDate, importErrorText, useT } from '@/lib/i18n';
@@ -75,6 +75,7 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
   };
 
   const isUrl = playlist.source === 'url';
+  const login = isUrl && playlist.url ? parseXtreamUrl(playlist.url) : undefined;
   const pending = isUrl && playlist.itemCount === 0;
 
   return (
@@ -86,7 +87,11 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-bold">{playlist.name}</h2>
           <p className="truncate text-xs text-muted" title={isUrl ? t('Credenciais ocultas') : undefined}>
-            {isUrl ? maskUrl(playlist.url ?? '') : `${t('Arquivo')}: ${playlist.fileName ?? '—'}`}
+            {login
+              ? t('Login: {user} em {host}', { user: login.username, host: login.host })
+              : isUrl
+                ? maskUrl(playlist.url ?? '')
+                : `${t('Arquivo')}: ${playlist.fileName ?? '—'}`}
           </p>
         </div>
         <label className="flex shrink-0 items-center gap-2 text-xs text-muted">

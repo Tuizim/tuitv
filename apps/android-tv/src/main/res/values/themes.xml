@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="navy">#FF101827</color>
+    <color name="cyan">#FF38BDF8</color>
+
+    <!-- Tema da janela: fundo azul-marinho desde o primeiro quadro (antes do Compose desenhar). -->
+    <style name="Theme.TuiTV" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/navy</item>
+        <item name="android:colorBackground">@color/navy</item>
+        <item name="android:colorPrimary">@color/navy</item>
+        <item name="android:colorAccent">@color/cyan</item>
+        <item name="android:statusBarColor">@color/navy</item>
+        <item name="android:navigationBarColor">@color/navy</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>

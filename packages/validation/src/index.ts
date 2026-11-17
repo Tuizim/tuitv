@@ -112,6 +112,67 @@ export function maskUrl(input: string): string {
   }
 }
 
+/**
+ * Login no formato Xtream Codes (host + usuário + senha), usado pela maioria dos provedores IPTV.
+ * O aplicativo monta o endereço da lista M3U a partir desses dados; nada é enviado a outro servidor.
+ */
+export interface XtreamLogin {
+  /** Base normalizada, sem barra final (ex.: "http://servidor.com:8080"). */
+  host: string;
+  username: string;
+  password: string;
+}
+
+const XTREAM_ENDPOINT = /\/(get|player_api|xmltv)\.php$/i;
+
+/**
+ * Normaliza o host digitado: aceita "servidor.com:8080", "http://servidor.com:8080/" ou até um endereço
+ * completo de get.php. Sem esquema, assume http://. Retorna undefined se não for http(s) válido.
+ */
+export function normalizeXtreamHost(input: string): string | undefined {
+  let raw = input.trim();
+  if (!raw) return undefined;
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw)) raw = `http://${raw}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+  if (!parsed.hostname) return undefined;
+  const path = parsed.pathname.replace(XTREAM_ENDPOINT, '').replace(/\/+$/, '');
+  return `${parsed.protocol}//${parsed.host}${path}`;
+}
+
+const enc = (value: string) => encodeURIComponent(value.trim());
+
+/** Endereço da lista M3U (canais, filmes e séries) para o login informado. */
+export function xtreamPlaylistUrl(login: XtreamLogin): string {
+  return `${login.host}/get.php?username=${enc(login.username)}&password=${enc(login.password)}&type=m3u_plus&output=ts`;
+}
+
+/** Endereço do guia de programação (XMLTV) do mesmo login. */
+export function xtreamEpgUrl(login: XtreamLogin): string {
+  return `${login.host}/xmltv.php?username=${enc(login.username)}&password=${enc(login.password)}`;
+}
+
+/** Recupera host, usuário e senha de um endereço get.php (para exibir "usuário em host"). */
+export function parseXtreamUrl(input: string): XtreamLogin | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return undefined;
+  }
+  if (!/\/get\.php$/i.test(parsed.pathname)) return undefined;
+  const username = parsed.searchParams.get('username');
+  const password = parsed.searchParams.get('password');
+  if (!username || !password) return undefined;
+  const host = normalizeXtreamHost(input);
+  return host ? { host, username, password } : undefined;
+}
+
 /** Endereços de imagem aceitos em logotipos e capas. */
 export function safeImageUrl(input: string | undefined): string | undefined {
   if (!input) return undefined;

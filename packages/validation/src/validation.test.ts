@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { hasCredentials, isPrivateHost, maskUrl, safeImageUrl, validateBackupEnvelope, validateRemoteUrl } from './index';
+import {
+  hasCredentials,
+  isPrivateHost,
+  maskUrl,
+  normalizeXtreamHost,
+  parseXtreamUrl,
+  safeImageUrl,
+  validateBackupEnvelope,
+  validateRemoteUrl,
+  xtreamEpgUrl,
+  xtreamPlaylistUrl,
+} from './index';
 
 describe('validateRemoteUrl', () => {
   it('aceita http/https públicos', () => {
@@ -67,5 +78,33 @@ describe('validateBackupEnvelope', () => {
     expect(validateBackupEnvelope(JSON.stringify({ app: 'tuitv', schemaVersion: 1, encrypted: false, data: { playlists: 'x' } })).problem).toBe('invalid-structure');
     expect(validateBackupEnvelope(JSON.stringify({ app: 'tuitv', schemaVersion: 1, encrypted: true })).problem).toBe('invalid-structure');
     expect(validateBackupEnvelope(JSON.stringify({ app: 'tuitv', schemaVersion: 1, encrypted: false, data })).ok).toBe(true);
+  });
+});
+
+describe('login Xtream (host, usuário e senha)', () => {
+  it('normaliza o host digitado', () => {
+    expect(normalizeXtreamHost('servidor.example:8080')).toBe('http://servidor.example:8080');
+    expect(normalizeXtreamHost(' https://servidor.example/ ')).toBe('https://servidor.example');
+    expect(normalizeXtreamHost('http://servidor.example:8080/get.php?username=a&password=b')).toBe('http://servidor.example:8080');
+    expect(normalizeXtreamHost('http://servidor.example/painel/player_api.php')).toBe('http://servidor.example/painel');
+    expect(normalizeXtreamHost('HTTP://Servidor.Example:80')).toBe('http://servidor.example');
+    expect(normalizeXtreamHost('')).toBeUndefined();
+    expect(normalizeXtreamHost('ftp://servidor.example')).toBeUndefined();
+    expect(normalizeXtreamHost('http://')).toBeUndefined();
+  });
+  it('monta os endereços da lista e do guia', () => {
+    const login = { host: 'http://servidor.example:8080', username: ' joão ', password: 'a&b c/+' };
+    expect(xtreamPlaylistUrl(login)).toBe(
+      'http://servidor.example:8080/get.php?username=jo%C3%A3o&password=a%26b%20c%2F%2B&type=m3u_plus&output=ts',
+    );
+    expect(xtreamEpgUrl(login)).toBe('http://servidor.example:8080/xmltv.php?username=jo%C3%A3o&password=a%26b%20c%2F%2B');
+    expect(hasCredentials(xtreamPlaylistUrl(login))).toBe(true);
+    expect(maskUrl(xtreamPlaylistUrl(login))).not.toContain('jo%C3%A3o');
+  });
+  it('recupera o login de um endereço get.php', () => {
+    const url = xtreamPlaylistUrl({ host: 'http://servidor.example:8080', username: 'joão', password: 'a&b' });
+    expect(parseXtreamUrl(url)).toEqual({ host: 'http://servidor.example:8080', username: 'joão', password: 'a&b' });
+    expect(parseXtreamUrl('http://servidor.example/lista.m3u')).toBeUndefined();
+    expect(parseXtreamUrl('http://servidor.example/get.php?username=a')).toBeUndefined();
   });
 });

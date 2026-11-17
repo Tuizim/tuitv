@@ -3,13 +3,14 @@
 | Camada | Ferramenta | Comando | O que cobre |
 | --- | --- | --- | --- |
 | Pacotes TypeScript | Vitest | `pnpm test` | Parser, classificação, ids estáveis, séries, busca, XMLTV, backup, PIN, validação de endereços |
-| Núcleo Kotlin | JUnit | `./gradlew :kotlin-core:test` | Mesmos arquivos de referência do TypeScript; backup cifrado gerado pela Web |
+| Núcleo Kotlin | JUnit | `./gradlew :kotlin-core:test` | Mesmos arquivos de referência do TypeScript; backup cifrado gerado pela Web; EPG, busca, parental e PBKDF2 portados |
+| App Android TV | Robolectric + Compose UI Test | `./gradlew :android-tv:testDebugUnitTest` | Importação real em Room (arquivo, endereço via MockWebServer, gzip, Windows-1252), atualização sem duplicar, erros explicados, guia `url-tvg` automático e programa atual, backup Web ⇄ TV, parental, histórico; telas em 1920x1080 com capturas em `apps/android-tv/build/screenshots`; abrir o player e trocar de canal pelo D-pad |
 | Web, ponta a ponta | Playwright | `pnpm build && pnpm test:e2e` | Fluxos reais sobre o build estático, em desktop e celular |
 
 ## Cenários de ponta a ponta (`apps/web/e2e/app.spec.ts`)
 
 - Primeiro acesso sem cadastro; menu na ordem do PRD.
-- Importação por arquivo e por endereço; categorias, filtro, favoritos; persistência após recarregar.
+- Importação por arquivo, por endereço e por login (host, usuário e senha, com guia do mesmo login); categorias, filtro, favoritos; persistência após recarregar.
 - Atualização sem duplicar e preservando favoritos; renomear, desativar e excluir listas.
 - Recusa de endereço interno, conteúdo que não é M3U, fonte sem CORS e erro HTTP.
 - Registros incompletos não interrompem a importação.
@@ -31,4 +32,5 @@ O Chromium do Playwright não inclui H.264/AAC, então a reprodução real foi c
 
 - Firefox, Safari e Edge (apenas Chrome/Chromium foram exercitados).
 - Metas de tempo do PRD em dispositivos de referência: só há medições em máquina de desenvolvimento.
-- Aplicativos Android e Android TV, que ainda não existem.
+- App de TV em aparelho real ou emulador: o emulador exige KVM (`/dev/kvm`), indisponível sem permissão nesta máquina. Reprodução de vídeo real (decodificação, HLS ao vivo, legendas) ainda não foi conferida no Android.
+- Aplicativo Android para celular/tablet, que ainda não existe.

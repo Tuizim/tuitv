@@ -1,12 +1,9 @@
 package tv.tui.core
 
 import java.security.SecureRandom
-import java.util.Base64
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
-import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import org.json.JSONObject
 
@@ -22,11 +19,8 @@ object Backup {
 
     class BackupException(val code: String) : Exception(code)
 
-    private fun key(password: String, salt: ByteArray, iterations: Int): SecretKeySpec {
-        val spec = PBEKeySpec(password.toCharArray(), salt, iterations, 256)
-        val bytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-        return SecretKeySpec(bytes, "AES")
-    }
+    private fun key(password: String, salt: ByteArray, iterations: Int): SecretKeySpec =
+        SecretKeySpec(Crypto.pbkdf2Sha256(password, salt, iterations, 256), "AES")
 
     /** Gera o conteúdo do arquivo de backup. [data] é o objeto `data` (listas, favoritos, histórico, preferências). */
     fun create(data: JSONObject, platform: String, password: String? = null, now: Long = System.currentTimeMillis()): String {
@@ -43,15 +37,14 @@ object Backup {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key(password, salt, KDF_ITERATIONS), GCMParameterSpec(128, iv))
         val payload = cipher.doFinal(data.toString().toByteArray(Charsets.UTF_8))
-        val b64 = Base64.getEncoder()
         return envelope.put("encrypted", true).put(
             "cipher",
             JSONObject()
                 .put("kdf", "PBKDF2-SHA256")
                 .put("iterations", KDF_ITERATIONS)
-                .put("salt", b64.encodeToString(salt))
-                .put("iv", b64.encodeToString(iv))
-                .put("payload", b64.encodeToString(payload)),
+                .put("salt", Crypto.toBase64(salt))
+                .put("iv", Crypto.toBase64(iv))
+                .put("payload", Crypto.toBase64(payload)),
         ).toString()
     }
 
@@ -69,15 +62,14 @@ object Backup {
         val data = if (envelope.optBoolean("encrypted")) {
             val c = envelope.optJSONObject("cipher") ?: throw BackupException("invalid-structure")
             if (password.isNullOrEmpty()) throw BackupException("password-required")
-            val b64 = Base64.getDecoder()
             try {
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 cipher.init(
                     Cipher.DECRYPT_MODE,
-                    key(password, b64.decode(c.getString("salt")), c.getInt("iterations")),
-                    GCMParameterSpec(128, b64.decode(c.getString("iv"))),
+                    key(password, Crypto.fromBase64(c.getString("salt")), c.getInt("iterations")),
+                    GCMParameterSpec(128, Crypto.fromBase64(c.getString("iv"))),
                 )
-                JSONObject(String(cipher.doFinal(b64.decode(c.getString("payload"))), Charsets.UTF_8))
+                JSONObject(String(cipher.doFinal(Crypto.fromBase64(c.getString("payload"))), Charsets.UTF_8))
             } catch (_: AEADBadTagException) {
                 throw BackupException("wrong-password")
             } catch (_: Exception) {

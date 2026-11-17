@@ -31,5 +31,6 @@ Plataforma independente, local-first e sem contas. Nenhuma função essencial de
 
 - **P0** (identidade, splash, início, importação por URL/arquivo, parser, TV ao vivo, player, categorias, busca, favoritos, armazenamento local, sem conta): implementado na Web.
 - **P1** (filmes, séries, múltiplas listas, histórico, EPG, backup, controle parental, PWA): implementado na Web.
-- **Android e Android TV**: pendentes; o núcleo Kotlin com parser e regras já existe.
+- **Android TV / Fire TV**: P0 e P1 implementados em `apps/android-tv` (ver [ANDROID-TV.md](ANDROID-TV.md)); falta validação em aparelho real.
+- **Android (celular/tablet)**: pendente; reaproveitará o núcleo Kotlin.
 - **P2** (Samsung/LG, iOS): fora desta entrega.

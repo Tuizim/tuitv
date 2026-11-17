@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Listas IPTV e transmissões costumam usar http://. No aplicativo nativo não há a restrição
+  de "conteúdo misto" do navegador, então o tráfego sem TLS é permitido; o aplicativo avisa
+  quando um endereço com credenciais usa http://.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

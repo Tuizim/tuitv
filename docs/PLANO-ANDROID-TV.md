@@ -1,6 +1,7 @@
 # Plano — TuiTV para Android TV e Fire TV
 
-Status: **rascunho para decisão**. Itens marcados como **[decidir]** precisam de confirmação antes da implementação.
+Status: **F0–F4 implementadas; F5 parcial** (APK instalável gerado; publicação em loja pendente).
+Instalação e uso: [ANDROID-TV.md](ANDROID-TV.md). Itens **[decidir]** abaixo receberam um valor padrão (ver seção 11) e podem ser revistos.
 
 ## 1. Escopo
 
@@ -101,3 +102,31 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" \
 2. Destino de publicação: Play Store, Amazon Appstore, ou ambas com APK também?
 3. `applicationId` definitivo (ex.: `tv.tui.tuitv`)?
 4. `http://` no app nativo: bloquear como na Web ou liberar com aviso?
+
+## 11. Decisões tomadas na implementação (revisáveis)
+
+| Pergunta | Decisão | Motivo |
+| --- | --- | --- |
+| `minSdk` | **23** (Android 6 / Fire OS 6+) | Mínimo das bibliotecas atuais; cobre Fire TV Stick 4K e posteriores. Fire OS 5 (API 22) fica de fora |
+| `applicationId` | **`tv.tui.tuitv`** (`tv.tui.tuitv.debug` no build de depuração) | Mesmo prefixo do `kotlin-core`; não muda após a primeira publicação |
+| Publicação | **APK** (ADB ou Downloader) nesta etapa | Play e Amazon exigem chave definitiva, ficha e política de privacidade publicadas |
+| `http://` | **Permitido** | Listas e transmissões IPTV usam http; no app nativo não há conteúdo misto. A validação de rede local continua (configurável) |
+| Assinatura | Chave definitiva via `scripts/create-keystore.sh`; sem ela, chave de depuração local | Permite instalar já; a chave definitiva precisa ser guardada para atualizações |
+| Celular/tablet | Fora desta etapa | Mesma base (`kotlin-core` e camada de dados) |
+
+## 12. Estado das fases
+
+| Fase | Estado |
+| --- | --- |
+| F0 — Preparação | Feita: SDK (platform 37, build-tools 37, imagem Android TV 36), AGP 9.5, Gradle 9.9, catálogo de versões |
+| F1 — Reprodução | Feita no código: Media3 com estratégias (auto → HLS → variante), reconexão, D-pad, canal ±, números, menu de faixas. **Não conferida em aparelho real** |
+| F2 — Dados e importação | Feita e testada (Robolectric): Room, arquivo e endereço, gzip, Windows-1252, gerações, cifragem, favoritos, histórico |
+| F3 — Interface TV | Feita: início, ao vivo, filmes, séries, guia, busca, favoritos, histórico, listas, configurações; capturas 1080p nos testes |
+| F4 — Recursos P1 | Feita: EPG portado (XMLTV) com guia automático via `url-tvg`, múltiplas listas, parental com PIN, backup compatível com a Web, atualização automática |
+| F5 — Publicação | Parcial: APK de release (R8, v1+v2) e guia de instalação. Falta: teste em Fire TV e Android TV reais, chave definitiva, fichas das lojas |
+
+### Próximos passos
+
+1. Instalar o APK em uma Fire TV e em uma Android TV e percorrer a matriz da seção 8 (formatos, listas grandes, memória).
+2. Liberar o emulador nesta máquina (`sudo usermod -aG kvm $USER` e reiniciar o WSL) para testes instrumentados.
+3. Opcional: cabeçalhos `#EXTVLCOPT` (User-Agent/Referer por canal), idioma inglês, app de celular/tablet.

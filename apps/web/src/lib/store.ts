@@ -75,7 +75,7 @@ interface Actions {
   dismissToast(id: string): void;
   dismissJob(id: string): void;
 
-  importPlaylist(input: { name: string; url?: string; file?: File }): Promise<Playlist>;
+  importPlaylist(input: { name: string; url?: string; file?: File; epgUrl?: string }): Promise<Playlist>;
   refreshPlaylist(id: string, file?: File): Promise<void>;
   renamePlaylist(id: string, name: string): Promise<void>;
   setPlaylistActive(id: string, active: boolean): Promise<void>;
@@ -325,7 +325,7 @@ export const useStore = create<State & Actions>((set, get) => {
     dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
     dismissJob: (id) => set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) })),
 
-    async importPlaylist({ name, url, file }) {
+    async importPlaylist({ name, url, file, epgUrl }) {
       const now = Date.now();
       const playlist: Playlist = {
         id: uid(),
@@ -339,6 +339,8 @@ export const useStore = create<State & Actions>((set, get) => {
       };
       if (file) playlist.fileName = file.name;
       else playlist.url = checkedUrl(url ?? '', get().settings.allowPrivateHosts);
+      // Guia conhecido de antemão (login Xtream); um guia anunciado pela própria lista tem prioridade.
+      if (epgUrl && !file) playlist.epgUrl = epgUrl;
       return runPlaylistImport(playlist, file, true);
     },
 

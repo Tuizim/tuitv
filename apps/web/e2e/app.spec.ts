@@ -137,6 +137,37 @@ test('recusa endereços internos, conteúdo inválido e fontes sem CORS com mens
   await expect(page.getByRole('heading', { name: 'Nenhuma lista cadastrada' })).toBeVisible();
 });
 
+test('adiciona lista por login (host, usuário e senha) e oferece o guia do mesmo login', async ({ page }) => {
+  await allowLocalHosts(page);
+  await page.goto('/playlists/');
+  await page.getByRole('button', { name: 'Adicionar lista' }).click();
+  await page.getByRole('tab', { name: 'Login' }).click();
+  await page.getByLabel('Host (servidor)').fill('127.0.0.1:4801/');
+  await page.getByLabel('Usuário').fill('joão');
+  await page.getByLabel('Senha').fill('errada');
+  await page.getByRole('button', { name: 'Importar', exact: true }).click();
+  await expect(page.getByText('respondeu com erro (401)')).toBeVisible();
+
+  await page.getByLabel('Senha').fill('');
+  await page.getByRole('button', { name: 'Importar', exact: true }).click();
+  await expect(page.getByText('Informe o host, o usuário e a senha.')).toBeVisible();
+
+  await page.getByLabel('Senha').fill('s&nha');
+  await page.getByRole('button', { name: 'Importar', exact: true }).click();
+  const card = page.getByTestId('playlist-card');
+  await expect(card.getByRole('heading', { name: '127.0.0.1' })).toBeVisible();
+  await expect(card.getByText('Login: joão em http://127.0.0.1:4801')).toBeVisible();
+  await expect(card.getByText('Conteúdos').locator('..')).toContainText('6');
+
+  await page.goto('/guide/');
+  await expect(page.getByText('Uma das suas listas indica um guia de programação')).toBeVisible();
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  // O diálogo abre com o endereço xmltv.php do mesmo login já preenchido.
+  await page.getByRole('dialog').getByRole('button', { name: 'Importar', exact: true }).click();
+  await expect(page.getByText('Guia de programação importado.')).toBeVisible();
+  await expect(page.getByText('3 canais com programação')).toBeVisible();
+});
+
 test('registros incompletos não interrompem a importação', async ({ page }) => {
   await importByFile(page, 'incomplete.m3u');
   await expect(page.getByText('importada: 5 itens')).toBeVisible();
