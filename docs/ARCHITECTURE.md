@@ -90,3 +90,10 @@ UI (Compose for TV)  ──►  Library (repositório)  ──►  Room (tuitv.d
 - **TV:** navegação só por D-pad (foco com borda ciano), menu lateral, foco restaurado ao voltar, banner de launcher, `LEANBACK_LAUNCHER` e `LAUNCHER` no mesmo APK; sem exigir tela de toque.
 - **Sem seletor de arquivos (Fire TV):** toda importação e restauração de backup também funciona por endereço; o backup exportado vai para Downloads quando não há seletor.
 - **Tráfego http:** permitido (listas IPTV costumam usar http); não há a restrição de conteúdo misto do navegador, nem CORS.
+
+## Aplicativo Tizen (`apps/tizen`)
+
+Reaproveita as telas de `apps/web/src` sem alterá-las. O Vite troca `next/link` e `next/navigation` por um roteador por
+hash (o pacote `.wgt` abre como arquivo local, onde rotas por caminho não existem), e `src/remote.ts` acrescenta a
+navegação espacial e as teclas do controle Samsung, traduzidas para as teclas que o player Web já trata. O CSS do
+Tailwind v4 e o JavaScript são rebaixados e auditados para o Chromium 69 (Tizen 5.5). Detalhes em [TIZEN.md](TIZEN.md).

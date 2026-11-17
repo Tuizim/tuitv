@@ -14,6 +14,7 @@ Especificação: [PRD.pdf](PRD.pdf) (resumo em [docs/PRD.md](docs/PRD.md)).
 | **TuiTV Web** (React + Next.js, PWA) | Pronto: P0 e P1 do PRD, testado de ponta a ponta |
 | Núcleo Kotlin (`packages/kotlin-core`) — parser, regras, EPG, busca e controle parental equivalentes ao TypeScript | Pronto e testado com os mesmos arquivos de referência |
 | **TuiTV Android TV / Fire TV** (`apps/android-tv`: Compose for TV, Room, Media3) | Pronto para instalar por APK: P0 e P1 do PRD; testado em JVM (Robolectric), ainda **não testado em aparelho real** — ver [docs/ANDROID-TV.md](docs/ANDROID-TV.md) |
+| **TuiTV Tizen** (`apps/tizen`: Smart TVs Samsung, mesma interface da Web empacotada em `.wgt`) | Pacote gerado e testado (Chromium, via `file://`, só com teclas); assinatura e teste em TV real pendentes — ver [docs/TIZEN.md](docs/TIZEN.md) |
 | TuiTV Android para celular/tablet | Não iniciado (reaproveitará `kotlin-core` e a camada de dados do app de TV) |
 
 ## Estrutura
@@ -22,6 +23,7 @@ Especificação: [PRD.pdf](PRD.pdf) (resumo em [docs/PRD.md](docs/PRD.md)).
 apps/
   web/                 Aplicação Web (Next.js, exportação estática, PWA)
   android-tv/          Aplicativo Android TV / Google TV / Fire TV (Kotlin, Compose for TV, Media3)
+  tizen/               Aplicativo para Smart TVs Samsung (Tizen): a interface Web empacotada em .wgt
 packages/
   shared-models/       Tipos de dados (listas, itens, favoritos, histórico, EPG, backup)
   m3u-parser/          Interpretador M3U/M3U8 incremental + fixtures/ (arquivos de referência)
@@ -47,6 +49,8 @@ pnpm test:e2e         # Playwright sobre o build estático (rode `pnpm build` an
 ./gradlew :kotlin-core:test                 # testes do núcleo Kotlin
 ./gradlew :android-tv:testDebugUnitTest     # testes do app de TV (Robolectric) + capturas em apps/android-tv/build/screenshots
 ./gradlew :android-tv:assembleRelease       # APK para TV/Fire TV em apps/android-tv/build/outputs/apk/release/
+pnpm build:tizen                            # pacote .wgt para TVs Samsung em apps/tizen/build/
+pnpm test:tizen                             # ponta a ponta do pacote Tizen (rode build:tizen antes)
 ```
 
 Na primeira execução dos testes de ponta a ponta: `pnpm --filter @tuitv/web exec playwright install chromium`.
@@ -68,3 +72,7 @@ São restrições dos navegadores, tratadas com mensagens claras no aplicativo:
 ## Android TV e Fire TV
 
 Como gerar o APK, instalar na TV ou na Fire TV (ADB ou app Downloader), usar o controle remoto e as limitações: [docs/ANDROID-TV.md](docs/ANDROID-TV.md).
+
+## Smart TVs Samsung (Tizen)
+
+Como gerar, assinar e instalar o pacote `.wgt`, versões da Tizen suportadas e uso do controle: [docs/TIZEN.md](docs/TIZEN.md).

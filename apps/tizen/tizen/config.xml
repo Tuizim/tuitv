@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TuiTV para Smart TVs Samsung (Tizen).
+  - package: 10 caracteres alfanuméricos; id do aplicativo = package + "." + nome.
+  - access origin="*": listas, guias e transmissões vêm de servidores escolhidos pelo usuário.
+    Em aplicativos empacotados, origens liberadas aqui não passam pela restrição de CORS do navegador.
+  - A versão é atualizada a partir de package.json pelo script de empacotamento.
+-->
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://tuitv.app/tizen" version="0.1.0" viewmodes="maximized">
+    <tizen:application id="TuiTVtizen.TuiTV" package="TuiTVtizen" required_version="3.0"/>
+    <tizen:profile name="tv-samsung"/>
+    <content src="index.html"/>
+    <icon src="icon.png"/>
+    <name>TuiTV</name>
+    <description>Seu entretenimento em um só lugar. Player IPTV 100% local, sem conta e sem login.</description>
+    <author>TuiTV</author>
+    <feature name="http://tizen.org/feature/screen.size.all"/>
+    <access origin="*" subdomains="true"/>
+    <tizen:allow-navigation>*</tizen:allow-navigation>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable"/>
+</widget>

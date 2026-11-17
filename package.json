@@ -8,6 +8,8 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "test:e2e": "pnpm --filter @tuitv/web test:e2e",
+    "build:tizen": "pnpm --filter @tuitv/tizen build",
+    "test:tizen": "pnpm --filter @tuitv/tizen test:e2e",
     "fixtures:update": "pnpm --filter @tuitv/business-rules fixtures:update"
   },
   "devDependencies": {

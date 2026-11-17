@@ -1,0 +1,18 @@
+/* Mesmos estilos da aplicação Web; o Tailwind também procura classes em apps/web/src. */
+@import '../../web/src/app/globals.css';
+
+@source '../../web/src';
+
+/*
+ * Ajustes para TV (somente no aplicativo Tizen):
+ * o foco precisa ser sempre bem visível a 3 metros de distância.
+ */
+html[data-platform='tizen'] :focus {
+  outline: 3px solid var(--tui-accent);
+  /* Por dentro do elemento: listas com rolagem não cortam o contorno. */
+  outline-offset: -3px;
+}
+
+html[data-platform='tizen'] {
+  cursor: none;
+}
