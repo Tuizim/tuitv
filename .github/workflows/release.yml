@@ -1,0 +1,101 @@
+# Publica uma versão do TuiTV no GitHub Releases.
+#
+#   git tag v1.2.3 && git push origin v1.2.3
+#
+# Roda os testes, gera o APK (Android TV / Fire TV) e o pacote Tizen e cria a release com
+# nomes de arquivo fixos, para que estes links sempre apontem para a versão mais recente:
+#   https://github.com/<dono>/<repo>/releases/latest/download/TuiTV-AndroidTV.apk
+#   https://github.com/<dono>/<repo>/releases/latest/download/TuiTV-Tizen-sem-assinatura.wgt
+# Tags com sufixo (v1.3.0-beta.1) viram pré-release e não mudam o "latest".
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Versão
+        id: version
+        run: |
+          VERSION="${TAG#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::Tag inválida: $TAG (use v1.2.3)"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          [[ "$VERSION" == *-* ]] && echo "prerelease=true" >> "$GITHUB_OUTPUT" || echo "prerelease=false" >> "$GITHUB_OUTPUT"
+
+      # ---------- TypeScript (Web e Tizen) ----------
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Pacote Tizen
+        run: pnpm build:tizen
+        env:
+          TUITV_VERSION: ${{ steps.version.outputs.version }}
+
+      # ---------- Kotlin (Android TV / Fire TV) ----------
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Chave de assinatura do Android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          # Sem a chave definitiva, cada release sairia com uma chave diferente e a TV
+          # recusaria a atualização. Por isso o build falha em vez de usar a chave de depuração.
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" ]]; then
+            echo "::error::Configure os secrets ANDROID_KEYSTORE_BASE64 e ANDROID_KEYSTORE_PASSWORD (ver docs/RELEASES.md)."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/tuitv-release.jks"
+          cat > apps/android-tv/keystore.properties <<EOF
+          storeFile=$RUNNER_TEMP/tuitv-release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=${KEY_ALIAS:-tuitv}
+          keyPassword=$KEYSTORE_PASSWORD
+          EOF
+
+      - name: Testes e APK
+        run: >
+          ./gradlew --no-configuration-cache -Ptuitv.version=${{ steps.version.outputs.version }}
+          :kotlin-core:test :android-tv:testDebugUnitTest :android-tv:assembleRelease
+
+      # ---------- Release ----------
+      - name: Arquivos
+        run: |
+          mkdir -p release
+          cp apps/android-tv/build/outputs/apk/release/android-tv-release.apk release/TuiTV-AndroidTV.apk
+          cp apps/tizen/build/TuiTV-sem-assinatura.wgt release/TuiTV-Tizen-sem-assinatura.wgt
+          cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FLAGS=(--title "TuiTV $TAG" --generate-notes --verify-tag)
+          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then FLAGS+=(--prerelease); else FLAGS+=(--latest); fi
+          gh release create "$TAG" release/* "${FLAGS[@]}"

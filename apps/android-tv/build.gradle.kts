@@ -14,6 +14,13 @@ plugins {
 val keystoreFile = file("keystore.properties")
 val keystore = Properties().apply { if (keystoreFile.exists()) keystoreFile.inputStream().use(::load) }
 
+// Versão: no CI vem da tag do Git (-Ptuitv.version=1.2.3); localmente, 0.1.0.
+// versionCode cresce a cada versão (1.2.3 → 10203), o que o Android exige para aceitar a atualização.
+val appVersion = (findProperty("tuitv.version") as String?)?.removePrefix("v") ?: "0.1.0"
+val appVersionCode = Regex("""^(\d+)\.(\d+)\.(\d+)(-[\w.]+)?$""").matchEntire(appVersion)
+    ?.destructured?.let { (major, minor, patch) -> major.toInt() * 10_000 + minor.toInt() * 100 + patch.toInt() }
+    ?: error("Versão inválida: '$appVersion' (use MAIOR.MENOR.CORREÇÃO, ex.: 1.2.3)")
+
 android {
     namespace = "tv.tui.tuitv"
     compileSdk = 37
@@ -23,8 +30,8 @@ android {
         // API 23 cobre Android TV 6+ e todos os Fire TV com Fire OS 6 ou mais recente.
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
     }
 
     signingConfigs {

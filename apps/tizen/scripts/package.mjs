@@ -13,7 +13,12 @@ import JSZip from 'jszip';
 const root = new URL('..', import.meta.url).pathname;
 const dist = join(root, 'dist');
 const out = join(root, 'build');
-const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+// No CI a versão vem da tag do Git (TUITV_VERSION=1.2.3); localmente, do package.json.
+// A Tizen só aceita números (x.y.z): sufixos como -beta.1 ficam de fora do config.xml.
+const version = (process.env.TUITV_VERSION || JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version)
+  .replace(/^v/, '')
+  .replace(/-.*$/, '');
+if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Versão inválida para a Tizen: ${version}`);
 
 // 1. Sintaxe compatível com o navegador da TV.
 execFileSync(process.execPath, [join(root, 'scripts/check-syntax.mjs')], { stdio: 'inherit' });

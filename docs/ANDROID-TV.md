@@ -12,6 +12,8 @@ Requisitos: JDK 17 (com `javac`) e Android SDK com `platforms;android-37.0` e `b
 # APK: apps/android-tv/build/outputs/apk/release/android-tv-release.apk  (~2,7 MB)
 ```
 
+A chave definitiva já foi criada em `~/.tuitv/` e é a usada nas releases do GitHub (ver [RELEASES.md](RELEASES.md)).
+
 Sem `apps/android-tv/keystore.properties`, o APK de release é assinado com a **chave de depuração desta máquina**.
 Isso basta para instalar por APK; atualizações futuras precisam ser assinadas pela mesma chave
 (a de depuração fica em `~/.android/debug.keystore`).

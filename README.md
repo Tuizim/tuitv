@@ -6,6 +6,17 @@ O usuário importa as próprias listas M3U/M3U8, organiza canais, filmes e séri
 
 Especificação: [PRD.pdf](PRD.pdf) (resumo em [docs/PRD.md](docs/PRD.md)).
 
+## Baixar
+
+Sempre a versão mais recente:
+
+| Aparelho | Arquivo |
+| --- | --- |
+| Android TV, Google TV, Fire TV | [TuiTV-AndroidTV.apk](https://github.com/Tuizim/tuitv/releases/latest/download/TuiTV-AndroidTV.apk) |
+| Smart TV Samsung (Tizen) | [TuiTV-Tizen-sem-assinatura.wgt](https://github.com/Tuizim/tuitv/releases/latest/download/TuiTV-Tizen-sem-assinatura.wgt) (precisa ser assinado com o seu certificado Samsung; ver [docs/TIZEN.md](docs/TIZEN.md)) |
+
+Todas as versões: [Releases](https://github.com/Tuizim/tuitv/releases). Como publicar uma versão: [docs/RELEASES.md](docs/RELEASES.md).
+
 ## Estado atual
 
 | Parte | Estado |
