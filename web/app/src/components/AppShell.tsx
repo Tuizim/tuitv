@@ -27,7 +27,7 @@ import { useUi } from '@/lib/hooks';
 import { importErrorText, useT } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { PinDialog } from './dialogs';
-import { Logo, PlayMark } from './Logo';
+import { CatMark, Logo } from './Logo';
 import { IconButton, Notice, Spinner, cx } from './ui';
 
 interface NavItem {
@@ -352,8 +352,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 function Splash() {
   return (
     <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-bg" role="status" aria-label="TuiTV">
-      <Logo className="text-5xl" mark={false} />
-      <PlayMark className="size-10 animate-pulse" />
+      <CatMark className="h-28 w-auto animate-pulse" />
       <p className="text-xs font-semibold tracking-[0.2em] text-muted uppercase">Seu entretenimento em um só lugar.</p>
     </div>
   );

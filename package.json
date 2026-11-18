@@ -10,6 +10,7 @@
     "test:e2e": "pnpm --filter @tuitv/web test:e2e",
     "build:samsung": "pnpm --filter @tuitv/samsung build",
     "test:samsung": "pnpm --filter @tuitv/samsung test:e2e",
+    "brand": "node web/app/scripts/brand.mjs",
     "fixtures:update": "pnpm --filter @tuitv/business-rules fixtures:update"
   },
   "devDependencies": {

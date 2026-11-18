@@ -1,2 +1,3 @@
 export * from './tokens';
-export { logoSvg, iconSvg } from './logo';
+// Ícone (gato) e logotipo (gato + nome), gerados de img/ por `pnpm brand`.
+export { brandIcon, brandLogo, brandLogoRatio } from './brand';

@@ -45,8 +45,12 @@ android/               TuiTV Android (projeto Gradle próprio: gradlew, gradle/l
   app/                 Aplicativo Android TV / Google TV / Fire TV / celular / tablet (Compose, Room, Media3)
   core/                Porte Kotlin/JVM do parser e das regras do TypeScript
 samsung/               TuiTV para Smart TVs Samsung (Tizen): as telas de web/app empacotadas em .wgt
+img/                   Identidade visual: tuitv-icone.svg (gato) e tuitv-logo.png (gato + nome)
 docs/                  PRD, arquitetura e testes
 ```
+
+Ícones e logotipos das três plataformas saem de `img/`: depois de trocar uma imagem, rode `pnpm brand`
+(gera PWA/favicon da Web, ícone da Samsung, ícones/banner do Android e o logotipo usado nas telas).
 
 ## Como usar
 

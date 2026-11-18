@@ -1,5 +1,9 @@
 package tv.tui.tuitv.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import tv.tui.tuitv.R
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -241,21 +245,27 @@ private fun BottomBar(navigator: Navigator) {
 @Composable
 private fun Splash() {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Brand(big = true)
-        Spacer(Modifier.height(16.dp))
+        CatMark(Modifier.height(112.dp))
+        Spacer(Modifier.height(24.dp))
         Text(Txt.TAGLINE, style = MaterialTheme.typography.titleMedium, color = TuiColors.Muted)
     }
 }
 
+/** Gato do TuiTV (ícone): tela de abertura e menu recolhido. Imagens geradas por `pnpm brand` a partir de img/. */
+@Composable
+fun CatMark(modifier: Modifier = Modifier) {
+    Image(painterResource(R.drawable.tuitv_icone), contentDescription = null, modifier = modifier, contentScale = ContentScale.Fit)
+}
+
+/** Logotipo com o nome (gato + "TuiTV"). */
 @Composable
 fun Brand(big: Boolean = false) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(TuiIcons.Logo, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(if (big) 72.dp else 36.dp))
-        Spacer(Modifier.width(if (big) 16.dp else 10.dp))
-        val style = if (big) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineSmall
-        Text("Tui", style = style, color = TuiColors.White)
-        Text("TV", style = style, color = TuiColors.Cyan)
-    }
+    Image(
+        painterResource(R.drawable.tuitv_logo),
+        contentDescription = "TuiTV",
+        modifier = Modifier.height(if (big) 96.dp else 40.dp),
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable
@@ -279,7 +289,7 @@ private fun MainShell(navigator: Navigator) {
                     .padding(horizontal = 12.dp, vertical = 12.dp),
             ) {
                 Box(Modifier.padding(start = 8.dp, top = 4.dp, bottom = 8.dp)) {
-                    if (value == DrawerValue.Open) Brand() else Icon(TuiIcons.Logo, null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(36.dp))
+                    if (value == DrawerValue.Open) Brand() else CatMark(Modifier.size(40.dp))
                 }
                 for (destination in destinations) {
                     val selected = navigator.section == destination.route

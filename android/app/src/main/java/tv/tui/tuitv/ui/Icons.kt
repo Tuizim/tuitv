@@ -60,8 +60,4 @@ object TuiIcons {
         "Subtitles",
         "M20,4H4c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V6c0,-1.1 -0.9,-2 -2,-2zM4,12h4v2H4v-2zM14,18H4v-2h10v2zM20,18h-4v-2h4v2zM20,14H10v-2h10v2z",
     )
-    val Logo = ImageVector.Builder("Logo", 24.dp, 24.dp, 512f, 512f).apply {
-        addPath(pathData = addPathNodes("M256,0a256,256 0,1 1,0 512a256,256 0,1 1,0 -512z"), fill = SolidColor(Color(0xFF38BDF8)))
-        addPath(pathData = addPathNodes("M212,168c0,-12 13,-19 23,-13l132,88c9,6 9,20 0,26l-132,88c-10,6 -23,-1 -23,-13z"), fill = SolidColor(Color(0xFF101827)))
-    }.build()
 }
