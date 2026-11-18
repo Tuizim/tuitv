@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Gato do TuiTV sobre azul-marinho. Imagens geradas por `pnpm brand` a partir de img/. -->
+<!-- Ícone do TuiTV (img/tuitv-icone-app.png) em camadas: degradê e desenho branco. Gerado por `pnpm brand`. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/navy" />
+    <background android:drawable="@mipmap/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />
     <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
 </adaptive-icon>

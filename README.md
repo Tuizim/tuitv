@@ -45,7 +45,7 @@ android/               TuiTV Android (projeto Gradle próprio: gradlew, gradle/l
   app/                 Aplicativo Android TV / Google TV / Fire TV / celular / tablet (Compose, Room, Media3)
   core/                Porte Kotlin/JVM do parser e das regras do TypeScript
 samsung/               TuiTV para Smart TVs Samsung (Tizen): as telas de web/app empacotadas em .wgt
-img/                   Identidade visual: tuitv-icone.svg (gato) e tuitv-logo.png (gato + nome)
+img/                   Identidade visual: tuitv-icone-app.png (ícone dos apps), tuitv-icone.svg (gato: ícone da Web e carregamento) e tuitv-logo.png (gato + nome)
 docs/                  PRD, arquitetura e testes
 ```
 
