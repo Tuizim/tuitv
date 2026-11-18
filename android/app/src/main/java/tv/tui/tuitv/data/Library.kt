@@ -39,6 +39,7 @@ import tv.tui.core.MediaItem
 import tv.tui.core.NowNext
 import tv.tui.core.Parental
 import tv.tui.core.Playback
+import tv.tui.core.RemoteSeries
 import tv.tui.core.buildEpgIndex
 import tv.tui.core.cleanName
 import tv.tui.core.nowNext
@@ -47,7 +48,6 @@ import tv.tui.core.resolveEpgChannel
 import tv.tui.core.searchIn
 import tv.tui.core.toSearchable
 import tv.tui.core.RemoteKind
-import tv.tui.core.RemoteSeries
 import tv.tui.core.Xtream
 import tv.tui.core.XtreamApi
 import tv.tui.core.XtreamLogin
@@ -473,6 +473,10 @@ class Library(
                     position = if (live) 0 else positionSec.coerceAtLeast(0),
                     duration = if (live) 0 else durationSec.coerceAtLeast(0),
                     completed = completed,
+                    seriesTitle = item.series?.let { it.title.ifBlank { null } ?: remoteSeries(item.playlistId, it.seriesKey)?.title ?: previous?.seriesTitle },
+                    seriesLogo = item.series?.let { remoteSeries(item.playlistId, it.seriesKey)?.logo ?: previous?.seriesLogo ?: item.logo },
+                    season = item.series?.let { it.season.takeIf { n -> n > 0 } ?: previous?.season ?: 0 },
+                    episode = item.series?.let { it.episode.takeIf { n -> n > 0 } ?: previous?.episode ?: 0 },
                 ),
             )
             db.history().trim(HISTORY_LIMIT)
@@ -481,6 +485,10 @@ class Library(
     }
 
     fun removeHistory(itemId: String) = scope.launch(Dispatchers.IO) { db.history().delete(itemId) }
+
+    /** Remove do histórico todos os episódios de uma série. */
+    fun removeSeriesHistory(seriesId: String) = scope.launch(Dispatchers.IO) { db.history().deleteSeries(seriesId) }
+
     fun clearHistory() = scope.launch(Dispatchers.IO) { db.history().clear() }
 
     val lastChannelId: String? get() = settingsStore.getString("lastChannel")

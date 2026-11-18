@@ -95,6 +95,12 @@ data class HistoryEntity(
     val position: Long,
     val duration: Long,
     val completed: Boolean,
+    /** Episódios: título e capa da série (o histórico mostra a série, não o episódio). */
+    val seriesTitle: String? = null,
+    val seriesLogo: String? = null,
+    /** Episódios: temporada e número (0 quando a lista não informa). */
+    val season: Int? = null,
+    val episode: Int? = null,
 )
 
 @Entity(tableName = "epg_sources")

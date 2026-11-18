@@ -124,9 +124,10 @@ export function useRemoteConnection(): RemoteLoad & { pending: boolean } {
 /** Episódios de uma série de login, carregados ao abrir a série. */
 export function useRemoteSeries(seriesId: string | undefined): RemoteLoad {
   const loadRemoteSeries = useStore((s) => s.loadRemoteSeries);
-  const [state, setState] = useState<{ loading: boolean; error: ImportError | null }>({ loading: false, error: null });
-  const [attempt, setAttempt] = useState(0);
   const remote = !!seriesId && seriesId.includes(':s:x');
+  // Série de login já começa "carregando": evita mostrar "não encontrada" antes do primeiro pedido.
+  const [state, setState] = useState<{ loading: boolean; error: ImportError | null }>({ loading: remote, error: null });
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!remote || !seriesId) return;
     let alive = true;
@@ -151,6 +152,8 @@ export const watchHref = (item: MediaItem): string => `/watch?id=${encodeURIComp
 export const itemHref = (item: MediaItem): string =>
   item.kind === 'live' ? `/live?c=${encodeURIComponent(item.id)}` : item.kind === 'movie' && isTvPlatform() ? titleHref(item) : watchHref(item);
 export const seriesHref = (id: string): string => `/series/view?id=${encodeURIComponent(id)}`;
+/** Continuar a série: abre o player no episódio mais adiante já assistido (ver /series/continue). */
+export const seriesContinueHref = (id: string): string => `/series/continue?id=${encodeURIComponent(id)}`;
 
 export function download(filename: string, text: string, type = 'application/json') {
   const url = URL.createObjectURL(new Blob([text], { type }));

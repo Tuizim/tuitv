@@ -105,6 +105,12 @@ export interface HistoryEntry {
   logo?: string;
   /** Id da série, para episódios. */
   seriesId?: string;
+  /** Episódios: título e capa da série (o histórico mostra a série, não o episódio). */
+  seriesTitle?: string;
+  seriesLogo?: string;
+  /** Episódios: temporada e número (0 quando a lista não informa). */
+  season?: number;
+  episode?: number;
   playedAt: number;
   /** Posição em segundos (filmes e episódios). */
   position: number;

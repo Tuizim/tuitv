@@ -234,6 +234,10 @@ class BackupService(private val library: Library) {
         .apply {
             h.logo?.let { put("logo", it) }
             h.seriesId?.let { put("seriesId", it) }
+            h.seriesTitle?.let { put("seriesTitle", it) }
+            h.seriesLogo?.let { put("seriesLogo", it) }
+            h.season?.let { put("season", it) }
+            h.episode?.let { put("episode", it) }
         }
         .put("playedAt", h.playedAt)
         .put("position", h.position)
@@ -251,6 +255,10 @@ class BackupService(private val library: Library) {
         position = o.optLong("position"),
         duration = o.optLong("duration"),
         completed = o.optBoolean("completed"),
+        seriesTitle = o.optStringOrNull("seriesTitle"),
+        seriesLogo = o.optStringOrNull("seriesLogo"),
+        season = if (o.has("season")) o.optInt("season") else null,
+        episode = if (o.has("episode")) o.optInt("episode") else null,
     )
 
     private fun epgJson(e: EpgSourceEntity) = JSONObject()

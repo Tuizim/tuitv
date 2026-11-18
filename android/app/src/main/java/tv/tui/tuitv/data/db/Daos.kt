@@ -135,6 +135,9 @@ interface HistoryDao {
     @Query("DELETE FROM history WHERE itemId = :itemId")
     suspend fun delete(itemId: String)
 
+    @Query("DELETE FROM history WHERE seriesId = :seriesId")
+    suspend fun deleteSeries(seriesId: String)
+
     @Query("DELETE FROM history")
     suspend fun clear()
 

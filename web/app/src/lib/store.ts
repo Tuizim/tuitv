@@ -99,6 +99,8 @@ interface Actions {
   recordPlayback(item: MediaItem, position: number, duration: number): void;
   setWatched(item: MediaItem, watched: boolean): void;
   removeHistory(itemId: string): void;
+  /** Remove do histórico todos os episódios de uma série. */
+  removeSeriesHistory(seriesId: string): void;
   clearHistory(): void;
   markUnavailable(itemId: string, unavailable: boolean): void;
 
@@ -338,7 +340,18 @@ export const useStore = create<State & Actions>((set, get) => {
       completed,
     };
     if (item.logo) entry.logo = item.logo;
-    if (item.series) entry.seriesId = makeSeriesId(item.playlistId, item.series.seriesKey);
+    if (item.series) {
+      entry.seriesId = makeSeriesId(item.playlistId, item.series.seriesKey);
+      // O histórico mostra a série (não o episódio): título e capa ficam guardados com a entrada.
+      const series = resolveSeries(get(), entry.seriesId);
+      const previous = get().historyById.get(item.id);
+      const title = item.series.title || series?.title || previous?.seriesTitle;
+      const logo = series?.logo ?? previous?.seriesLogo;
+      if (title) entry.seriesTitle = title;
+      if (logo) entry.seriesLogo = logo;
+      entry.season = item.series.season || previous?.season || 0;
+      entry.episode = item.series.episode || previous?.episode || 0;
+    }
     return entry;
   };
 
@@ -670,6 +683,18 @@ export const useStore = create<State & Actions>((set, get) => {
       void local.deleteHistory(itemId);
     },
 
+    removeSeriesHistory(seriesId) {
+      const ids = get().history.filter((h) => h.seriesId === seriesId).map((h) => h.itemId);
+      if (ids.length === 0) return;
+      const removed = new Set(ids);
+      set((s) => {
+        const historyById = new Map(s.historyById);
+        for (const id of ids) historyById.delete(id);
+        return { history: s.history.filter((h) => !removed.has(h.itemId)), historyById };
+      });
+      for (const id of ids) void local.deleteHistory(id);
+    },
+
     clearHistory() {
       set({ history: [], historyById: new Map() });
       void local.clearHistory();
@@ -904,18 +929,26 @@ export function resolveItem(s: Resolvable, id: string): MediaItem | undefined {
   return xtream.itemFromId(playlist, id, meta);
 }
 
-/** Série por id: da biblioteca ou, de um login, um resumo com o nome e a capa do favorito (episódios carregam ao abrir). */
+/** Série por id: da biblioteca ou, de um login, um resumo com o nome e a capa do favorito ou do histórico (episódios carregam ao abrir). */
 export function resolveSeries(s: Resolvable, id: string): SeriesGroup | undefined {
   const loaded = s.lib.seriesById.get(id);
   if (loaded) return loaded;
   const playlist = s.playlists.find((p) => p.active && xtream.isXtream(p) && xtream.remoteSeriesId(p.id, id));
-  const snapshot = s.favorites.get(id)?.snapshot;
+  if (!playlist) return undefined;
+  const snapshot = s.favorites.get(id)?.snapshot ?? historySnapshot(s, id);
   if (!playlist || !snapshot) return undefined;
   const series: SeriesGroup = { id, playlistId: playlist.id, title: snapshot.name, seasons: [], episodeCount: 0 };
   if (snapshot.logo) series.logo = snapshot.logo;
   if (snapshot.group) series.group = snapshot.group;
   if (snapshot.year) series.year = snapshot.year;
   return series;
+}
+
+function historySnapshot(s: Resolvable, seriesId: string): { name: string; logo?: string; group?: string; year?: number } | undefined {
+  for (const h of s.historyById.values()) {
+    if (h.seriesId === seriesId && h.seriesTitle) return h.seriesLogo ? { name: h.seriesTitle, logo: h.seriesLogo } : { name: h.seriesTitle };
+  }
+  return undefined;
 }
 
 /** Resolvedores ligados ao estado atual (para listas de favoritos e histórico). */

@@ -65,6 +65,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import tv.tui.core.ContentKind
 import tv.tui.core.MediaItem
+import tv.tui.core.EpisodeOrder
+import tv.tui.core.EpisodeProgress
+import tv.tui.core.SeriesGroup
+import tv.tui.core.collapseSeriesHistory
+import tv.tui.core.continueEpisode
 import tv.tui.core.groupSeries
 import tv.tui.core.nextEpisode
 import tv.tui.core.seriesId
@@ -143,6 +148,40 @@ fun rememberHistoryPlayer(): (HistoryEntry) -> Unit {
                 groupSeries(eps).firstOrNull()?.seasons?.flatMap { it.episodes }
             } ?: listOf(item)
             navigator.play(queue, item, resume)
+        }
+    }
+}
+
+/**
+ * Episódio para continuar a série (mesma regra da Web e da Samsung): o mais adiante já assistido
+ * ou, se ele terminou, o seguinte — com a posição de retomada, quando houver.
+ */
+private fun continueTarget(series: SeriesGroup, history: Map<String, HistoryEntry>): Pair<MediaItem, Long?> {
+    val target = continueEpisode(series) { id -> history[id]?.let { EpisodeProgress(it.position, it.completed) } }
+        ?: return series.seasons.first().episodes.first() to null
+    return target.episode to history[target.episode.id]?.takeIf { target.resume && it.resumable() }?.position
+}
+
+/** Continua, a partir do histórico, a série de um episódio (estilo Netflix). */
+@Composable
+fun rememberSeriesContinue(): (HistoryEntry) -> Unit {
+    val library = library()
+    val navigator = navigator()
+    val toaster = toaster()
+    val scope = rememberCoroutineScope()
+    return { entry ->
+        scope.launch {
+            val sid = entry.seriesId
+            val key = sid?.removePrefix("${entry.playlistId}:s:")
+            // Login: os episódios vêm do servidor antes de escolher o episódio.
+            val series = key?.let { groupSeries(library.episodes(entry.playlistId, it).first()).firstOrNull() }
+            if (sid == null || series == null) {
+                toaster.show("Esta série não está mais nas suas listas.")
+                return@launch
+            }
+            val history = library.seriesHistory(sid).first().associateBy { it.itemId }
+            val (episode, resume) = continueTarget(series, history)
+            navigator.play(series.seasons.flatMap { it.episodes }, episode, resume)
         }
     }
 }
@@ -340,10 +379,14 @@ fun FavoritesScreen() {
 fun HistoryScreen() {
     val library = library()
     val playHistory = rememberHistoryPlayer()
+    val continueSeries = rememberSeriesContinue()
     val history by library.history.collectAsStateWithLifecycle(null)
     var confirmClear by remember { mutableStateOf(false) }
     val memory = rememberFocusMemory("history")
-    val list = history
+    // Séries no estilo Netflix: uma linha por série, representada pelo episódio mais adiante já assistido.
+    val list = remember(history) {
+        history?.let { h -> collapseSeriesHistory(h, { e -> e.seriesId.takeIf { e.kind == ContentKind.SERIES.id } }) { EpisodeOrder(it.season, it.episode, it.playedAt) } }
+    }
     val device = device()
     Column(Modifier.fillMaxSize().padding(horizontal = device.gutter)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -359,26 +402,32 @@ fun HistoryScreen() {
             else -> {
                 ColumnPivot {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(if (device.tv) 6.dp else 0.dp, 8.dp, if (device.tv) 6.dp else 0.dp, 48.dp)) {
-                    itemsIndexed(list, key = { _, e -> e.itemId }) { index, entry ->
-                        val kind = when (entry.kind) {
-                            ContentKind.LIVE.id -> "Canal"
-                            ContentKind.MOVIE.id -> "Filme"
+                    itemsIndexed(list, key = { _, row -> row.entry.seriesId.takeIf { row.episodes != null } ?: row.entry.itemId }) { index, row ->
+                        val entry = row.entry
+                        val series = row.episodes != null
+                        val kind = when {
+                            entry.kind == ContentKind.LIVE.id -> "Canal"
+                            entry.kind == ContentKind.MOVIE.id -> "Filme"
+                            series -> "Série"
                             else -> "Episódio"
                         }
+                        val episodeLabel = if (series && ((entry.season ?: 0) > 0 || (entry.episode ?: 0) > 0)) Txt.episodeLabel(entry.season ?: 0, entry.episode ?: 0) else null
                         val detail = when {
                             entry.kind == ContentKind.LIVE.id -> null
                             entry.completed -> "assistido"
                             entry.duration > 0 -> "${Txt.clock(entry.position)} de ${Txt.clock(entry.duration)}"
                             else -> null
                         }
+                        val title = if (series) entry.seriesTitle ?: entry.name else entry.name
+                        val logo = if (series) entry.seriesLogo ?: entry.logo else entry.logo
                         ListRow(
-                            title = entry.name,
-                            subtitle = listOfNotNull(kind, detail).joinToString(" · "),
-                            trailing = Txt.ago(entry.playedAt),
+                            title = title,
+                            subtitle = listOfNotNull(kind, episodeLabel, detail).joinToString(" · "),
+                            trailing = Txt.ago(row.episodes?.first()?.playedAt ?: entry.playedAt),
                             progress = if (entry.resumable()) entry.fraction() else null,
-                            onClick = { playHistory(entry) },
-                            onLongClick = { library.removeHistory(entry.itemId) },
-                            leading = { RemoteImage(entry.logo, entry.name, Modifier.size(width = 72.dp, height = 44.dp)) },
+                            onClick = { if (series) continueSeries(entry) else playHistory(entry) },
+                            onLongClick = { if (series) library.removeSeriesHistory(entry.seriesId!!) else library.removeHistory(entry.itemId) },
+                            leading = { RemoteImage(logo, title, Modifier.size(width = 72.dp, height = 44.dp)) },
                             modifier = memory.item(index),
                         )
                     }
@@ -618,12 +667,8 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
     }
     val byItem = history.associateBy { it.itemId }
     val flat = series.seasons.flatMap { it.episodes }
-    // Próximo a assistir: o último episódio iniciado (se incompleto) ou o seguinte a ele.
-    val last = history.maxByOrNull { it.playedAt }
-    val target: Pair<MediaItem, Long?> = last?.let { h ->
-        val ep = flat.firstOrNull { it.id == h.itemId } ?: return@let null
-        if (h.resumable()) ep to h.position else (if (h.completed) nextEpisode(series, ep.id) else ep)?.let { it to null }
-    } ?: (flat.first() to null)
+    // Mesma regra do histórico: o episódio mais adiante já assistido ou, se ele terminou, o seguinte.
+    val target = continueTarget(series, byItem)
     if (seasonIndex < 0) seasonIndex = series.seasons.indexOfFirst { s -> s.episodes.any { it.id == target.first.id } }.coerceAtLeast(0)
     val season = series.seasons.getOrNull(seasonIndex) ?: series.seasons.first()
 

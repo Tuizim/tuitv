@@ -16,10 +16,11 @@ import androidx.room.RoomDatabase
         EpgChannelEntity::class,
         ProgrammeEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
     // 2: lista consultada sob demanda (provider, expiresAt) e nome/capa nos favoritos.
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    // 3: série, temporada e episódio no histórico (uma linha por série, estilo Netflix).
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun playlists(): PlaylistDao

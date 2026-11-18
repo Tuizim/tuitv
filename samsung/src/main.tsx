@@ -12,6 +12,7 @@ import LivePage from '@/app/live/page';
 import MoviesPage from '@/app/movies/page';
 import SeriesPage from '@/app/series/page';
 import SeriesViewPage from '@/app/series/view/page';
+import SeriesContinuePage from '@/app/series/continue/page';
 import WatchPage from '@/app/watch/page';
 import TitlePage from '@/app/title/page';
 import GuidePage from '@/app/guide/page';
@@ -31,6 +32,7 @@ const ROUTES: Record<string, ComponentType> = {
   '/movies': MoviesPage,
   '/series': SeriesPage,
   '/series/view': SeriesViewPage,
+  '/series/continue': SeriesContinuePage,
   '/title': TitlePage,
   '/watch': WatchPage,
   '/guide': GuidePage,

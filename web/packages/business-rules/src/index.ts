@@ -5,3 +5,4 @@ export * from './epg';
 export * from './crypto';
 export * from './backup';
 export * from './parental';
+export * from './history';

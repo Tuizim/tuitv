@@ -4,6 +4,7 @@ import { Check, CheckCheck, Clapperboard, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
+import { continueEpisode } from '@tuitv/business-rules';
 import { FavoriteButton } from '@/components/cards';
 import { Synopsis } from '@/components/Synopsis';
 import { Thumb } from '@/components/Thumb';
@@ -34,11 +35,8 @@ function SeriesView() {
   const [seasonIndex, setSeasonIndex] = useState<number | null>(null);
   const info = useSeriesInfo(series);
 
-  const upNext = useMemo(() => {
-    if (!series) return undefined;
-    const all = series.seasons.flatMap((s) => s.episodes);
-    return all.find((e) => !historyById.get(e.id)?.completed) ?? all[0];
-  }, [series, historyById]);
+  // Mesma regra do histórico: o episódio mais adiante já assistido ou, se ele terminou, o seguinte.
+  const upNext = useMemo(() => (series ? continueEpisode(series, (id) => historyById.get(id))?.episode : undefined), [series, historyById]);
 
   if (!series || series.seasons.length === 0) {
     if (load.loading || load.error) return <RemoteStatus load={load} />;

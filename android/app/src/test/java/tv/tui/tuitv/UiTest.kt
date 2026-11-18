@@ -134,6 +134,30 @@ class UiTest {
     }
 
     @Test
+    fun historicoMostraASerieUmaVezEContinua() {
+        seed()
+        val episodes = runBlocking {
+            val s = app.library.series(GroupFilter.All).first().first { it.title == "A Série" }
+            app.library.episodes(s.playlistId, s.seriesKey).first().sortedBy { it.order }
+        }
+        // E1 até o fim e o E2 pela metade; depois, o E1 de novo: o histórico continua no E2 (o mais adiante).
+        app.library.recordPlayback(episodes[0], 2900, 3000)
+        app.library.recordPlayback(episodes[1], 1200, 3000)
+        Thread.sleep(20)
+        app.library.recordPlayback(episodes[0], 100, 3000)
+        compose.waitUntil(10_000) { runBlocking { app.library.history.first().count { it.seriesId != null } } == 2 }
+        show(Route.History)
+        waitFor("A Série")
+        assertEquals(1, compose.onAllNodesWithText("A Série").fetchSemanticsNodes().size)
+        assertTrue(compose.onAllNodesWithText("S01E0", substring = true).fetchSemanticsNodes().isEmpty())
+        waitFor(Txt.episodeLabel(1, 2), substring = true)
+        shot("15-historico")
+        // OK abre o player no episódio mais adiante já assistido (E2).
+        press(NativeKeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("A Série S01E02", substring = true)
+    }
+
+    @Test
     fun adicionarListaPorLogin() {
         seed()
         show(Route.Playlists)
