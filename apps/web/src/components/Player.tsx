@@ -25,6 +25,7 @@ import { maskUrl } from '@tuitv/validation';
 import { formatClock, useT } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { useBackLayer } from '@/lib/back';
+import { isTv } from '@/lib/platform';
 import { Button, Spinner, cx } from './ui';
 
 type Engine = 'hls' | 'mpegts' | 'native';
@@ -111,7 +112,7 @@ interface Plan {
  *  - demais endereços → o formato é detectado: HLS → HLS.js; MPEG-TS → mpegts.js; vídeo → HTML5.
  *    Se o servidor não permitir a detecção, tenta a variante HLS do canal e a reprodução nativa.
  */
-export async function planPlayback(url: string, support: { hls: boolean; mpegts: boolean }, timeoutMs: number): Promise<Plan> {
+export async function planPlayback(url: string, support: { hls: boolean; mpegts: boolean }, timeoutMs: number, tv = false): Promise<Plan> {
   if (!/^https?:\/\//i.test(url)) return { candidates: [], failure: 'protocol', detail: url.split(':')[0] };
   let path: string;
   try {
@@ -121,10 +122,20 @@ export async function planPlayback(url: string, support: { hls: boolean; mpegts:
   }
   const native: Candidate = { engine: 'native', url };
   const hls = (target: string): Candidate => ({ engine: support.hls ? 'hls' : 'native', url: target });
-  if (/\.m3u8$/i.test(path)) return { candidates: [hls(url)] };
   if (VOD_EXT.test(path)) return { candidates: [native] };
 
   const variant = hlsVariant(url);
+  if (tv) {
+    // TVs Samsung: o player nativo (pipeline de mídia da TV) toca HLS e MPEG-TS direto, sem CORS,
+    // sem baixar um pedaço do canal antes e sem decodificar em JavaScript (pesado nessas TVs).
+    // HLS.js e mpegts.js ficam como alternativas.
+    const list: Candidate[] = [native];
+    if (variant) list.push({ engine: 'native', url: variant });
+    if (support.hls) list.push({ engine: 'hls', url: /\.m3u8$/i.test(path) ? url : (variant ?? url) });
+    if (support.mpegts && !/\.m3u8$/i.test(path)) list.push({ engine: 'mpegts', url });
+    return { candidates: list, detail: 'TV' };
+  }
+  if (/\.m3u8$/i.test(path)) return { candidates: [hls(url)] };
   const probe = await probeStream(url, timeoutMs);
   switch (probe.kind) {
     case 'hls':
@@ -482,7 +493,7 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
       const { default: mpegts } = await import('mpegts.js');
       if (disposed) return;
       const timeoutMs = live.current.settings.connectionTimeout * 1000;
-      plan = await planPlayback(item.url, { hls: HlsCtor.isSupported(), mpegts: mpegts.getFeatureList().mseLivePlayback }, timeoutMs);
+      plan = await planPlayback(item.url, { hls: HlsCtor.isSupported(), mpegts: mpegts.getFeatureList().mseLivePlayback }, timeoutMs, isTv());
       if (disposed) return;
       candidates = plan.candidates;
       void start();

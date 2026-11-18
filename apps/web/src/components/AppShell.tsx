@@ -398,7 +398,8 @@ function Toasts() {
   const dismiss = useStore((s) => s.dismissToast);
   if (!toasts.length) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-16 z-[70] flex flex-col items-center gap-2 px-4" aria-live="polite">
+    // data-nav-skip: na TV os avisos somem sozinhos e não "roubam" o foco da navegação pelo controle.
+    <div className="pointer-events-none fixed inset-x-0 top-16 z-[70] flex flex-col items-center gap-2 px-4" aria-live="polite" data-nav-skip="">
       {toasts.map((toast) => (
         <div
           key={toast.id}

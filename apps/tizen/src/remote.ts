@@ -8,6 +8,7 @@
  *    → volta ao topo da tela se ela estiver rolada → volta uma tela → na tela inicial, fecha o aplicativo.
  */
 import { runBack } from '@/lib/back';
+import { preloadImages } from '@/lib/lazyImages';
 import { getLocation, subscribe, takeAnchor } from './router';
 
 interface TizenApi {
@@ -82,7 +83,7 @@ function scope(): ParentNode {
 
 /** Elementos que o controle pode focar (tabindex="-1" fica de fora, ex.: o logotipo). */
 function reachable(root: ParentNode): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.tabIndex >= 0);
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.tabIndex >= 0 && !el.closest('[data-nav-skip]'));
 }
 
 export function focusables(root: ParentNode = scope()): HTMLElement[] {
@@ -165,13 +166,60 @@ export function preferRemembered(active: HTMLElement, next: HTMLElement, dir: Di
   return remembered && remembered !== next && row.contains(remembered) && document.contains(remembered) ? remembered : next;
 }
 
-/** Contêiner com rolagem vertical própria (diálogo, menu, lista lateral), se houver. */
+/**
+ * Contêiner com rolagem vertical própria (diálogo, menu, lista lateral), se houver.
+ * Guardado em cache por elemento: evita percorrer os ancestrais com getComputedStyle a cada tecla.
+ */
+const scrollParents = new WeakMap<HTMLElement, HTMLElement | null>();
 function scrollParent(el: HTMLElement): HTMLElement | null {
+  const cached = scrollParents.get(el);
+  if (cached !== undefined && (cached === null || document.contains(cached))) return cached;
+  let found: HTMLElement | null = null;
   for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
     const style = window.getComputedStyle(node);
-    if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 1) return node;
+    if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 1) {
+      found = node;
+      break;
+    }
   }
-  return null;
+  scrollParents.set(el, found);
+  return found;
+}
+
+/** Cartões à frente do foco cujas capas já são pedidas (chegam prontas ao deslizar a fileira). */
+const PRELOAD_AHEAD = 8;
+
+/** Filho direto da trilha (o "slot" do cartão) que contém o elemento. */
+function slotIn(el: HTMLElement | null, track: HTMLElement): HTMLElement | null {
+  let slot: HTMLElement | null = el;
+  while (slot && slot.parentElement !== track) slot = slot.parentElement;
+  return slot;
+}
+
+function preloadAhead(track: HTMLElement, el: HTMLElement) {
+  let slot: Element | null = slotIn(el, track);
+  for (let i = 0; slot && i <= PRELOAD_AHEAD; i++, slot = slot.nextElementSibling) preloadImages(slot);
+}
+
+/** Distância horizontal do elemento até o início da trilha (layout, sem transform). */
+function offsetIn(el: HTMLElement, track: HTMLElement): number {
+  let x = 0;
+  for (let node: HTMLElement | null = el; node && node !== track; node = node.offsetParent as HTMLElement | null) {
+    x += node.offsetLeft;
+    if (node.offsetParent === track) return x;
+  }
+  return x;
+}
+
+/** Recuo interno de cada fileira (não muda durante o uso). */
+const rowPadding = new WeakMap<HTMLElement, number>();
+function paddingOf(row: HTMLElement): number {
+  let pad = rowPadding.get(row);
+  if (pad === undefined) {
+    pad = parseFloat(window.getComputedStyle(row).paddingLeft) || 0;
+    rowPadding.set(row, pad);
+  }
+  return pad;
 }
 
 /** Faixa da tela em que o foco pode andar sem rolar a página (abaixo do cabeçalho fixo). */
@@ -180,29 +228,62 @@ const BOTTOM_SAFE = 0.78;
 /** Ao sair da faixa, o elemento é levado a ~30% da altura: sobra espaço para ver o que vem depois. */
 const PIVOT = 0.3;
 
+/**
+ * Move o foco e rola até ele. Desempenho: primeiro todas as leituras de layout (já calculado nesta
+ * tecla, ao escolher o destino), depois as escritas (foco e rolagem). Ler medidas depois de mudar
+ * o foco obrigaria o navegador a recalcular estilo e layout no meio da tecla — o "engasgo".
+ */
 function focus(el: HTMLElement, smooth = true) {
   // Tecla segurada: rolagem instantânea, para a tela acompanhar o foco sem acumular animações.
   const behavior: ScrollBehavior = smooth ? 'smooth' : 'auto';
-  el.focus({ preventScroll: true });
-  remember(el);
+
+  // 1. Leituras.
   const row = rowOf(el);
-  if (row) {
+  const rect = el.getBoundingClientRect();
+  let rowLeft: number | null = null;
+  // Fileira de TV (carrossel): a trilha desliza com transform; posição pelo layout, não pela tela,
+  // para que passos rápidos no meio de uma animação calculem o destino certo.
+  const track = row?.hasAttribute('data-tv-carousel') ? (row.firstElementChild as HTMLElement | null) : null;
+  let trackX: number | null = null;
+  if (row && track) {
+    const visible = row.clientWidth - paddingOf(row) * 2;
+    const max = Math.max(0, track.scrollWidth - visible);
+    // O cartão em foco atual tem um espaço extra à direita (styles.css); ele some quando o foco
+    // muda, então é descontado se esse cartão estiver antes do novo.
+    let shift = 0;
+    const current = slotIn(document.activeElement as HTMLElement | null, track);
+    const next = slotIn(el, track);
+    if (current && next && current !== next && current.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      shift = parseFloat(window.getComputedStyle(current).marginRight) || 0;
+    }
+    trackX = Math.min(max, Math.max(0, offsetIn(el, track) - shift));
+  } else if (row) {
     // Cartão em foco sempre no início da fileira: a fileira desliza por baixo dele.
-    const pad = parseFloat(window.getComputedStyle(row).paddingLeft) || 0;
-    const delta = el.getBoundingClientRect().left - row.getBoundingClientRect().left - pad;
-    if (Math.abs(delta) > 1) row.scrollTo({ left: Math.max(0, row.scrollLeft + delta), behavior });
+    const delta = rect.left - row.getBoundingClientRect().left - paddingOf(row);
+    if (Math.abs(delta) > 1) rowLeft = Math.max(0, row.scrollLeft + delta);
   }
   const parent = scrollParent(row ?? el);
-  if (parent) {
-    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    return;
+  let pageTop: number | null = null;
+  if (!parent) {
+    const height = window.innerHeight;
+    if (rect.top < TOP_SAFE || rect.bottom > height * BOTTOM_SAFE) {
+      const target = rect.height > height * 0.6 ? TOP_SAFE : Math.max(TOP_SAFE, height * PIVOT);
+      pageTop = Math.max(0, window.scrollY + rect.top - target);
+    }
   }
-  const rect = el.getBoundingClientRect();
-  const height = window.innerHeight;
-  if (rect.top < TOP_SAFE || rect.bottom > height * BOTTOM_SAFE) {
-    const target = rect.height > height * 0.6 ? TOP_SAFE : Math.max(TOP_SAFE, height * PIVOT);
-    window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - target), behavior });
-  }
+
+  // 2. Escritas.
+  el.focus({ preventScroll: true });
+  remember(el);
+  if (track && trackX !== null) {
+    if (track.dataset.x !== String(trackX)) {
+      track.dataset.x = String(trackX);
+      track.style.transform = `translate3d(${-trackX}px, 0, 0)`;
+    }
+    preloadAhead(track, el);
+  } else if (row && rowLeft !== null) row.scrollTo({ left: rowLeft, behavior });
+  if (parent) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  else if (pageTop !== null) window.scrollTo({ top: pageTop, behavior });
 }
 
 /** Em campos de texto, ← → movem o cursor até a borda do texto; só então o foco sai do campo. */
@@ -236,9 +317,19 @@ function activeIsLost(): boolean {
   return !active || active === document.body || !document.contains(active) || !isVisible(active);
 }
 
+/** Tecla segurada: no máximo um passo a cada [REPEAT_MS], para a tela acompanhar sem fila de passos. */
+const REPEAT_MS = 90;
+let lastMove = 0;
+
 function onArrow(event: KeyboardEvent) {
   const dir = ARROWS[event.key];
   if (!dir || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+  const now = Date.now();
+  if (event.repeat && now - lastMove < REPEAT_MS) {
+    event.preventDefault();
+    return;
+  }
+  lastMove = now;
   const active = document.activeElement as HTMLElement | null;
   if (activeIsLost()) {
     event.preventDefault();
@@ -246,9 +337,29 @@ function onArrow(event: KeyboardEvent) {
     return;
   }
   if (!caretAllowsLeaving(active!, dir)) return;
-  const candidates = reachable(scope()).filter((el) => el !== active && !el.contains(active) && !active!.contains(el));
-  const found = nearest(active!.getBoundingClientRect(), candidates, dir, isVisible);
   event.preventDefault();
+  // Carrossel: ◀▶ andam só dentro da fileira; no fim dela o foco fica onde está.
+  const row = rowOf(active!);
+  const carousel = row?.closest('[class~="group/row"], [data-nav-row]') ? row : null;
+  const horizontal = dir === 'left' || dir === 'right';
+  const pool = carousel && horizontal ? reachable(carousel) : reachable(scope());
+  // Do cabeçalho para baixo: vai direto ao alvo principal da tela, se ela indicar um (ex.: canal atual).
+  if (dir === 'down' && active!.closest('header')) {
+    // Sem indicação, o primeiro cartão da tela (ou o lembrado na fileira dele), não links laterais.
+    const marked = document.querySelector<HTMLElement>('main [data-nav-default]');
+    const card = document.querySelector<HTMLElement>('main a.group');
+    const target = marked ?? (card && rowOf(card) ? (lastInRow.get(rowOf(card)!) ?? card) : card);
+    if (target && isVisible(target) && target.getBoundingClientRect().top < window.innerHeight) {
+      focus(target, !event.repeat);
+      return;
+    }
+  }
+  // ◀▶ não saltam para o menu do topo a partir da tela (só ▲ leva até ele).
+  const fromHeader = !!active!.closest('header');
+  const candidates = pool.filter(
+    (el) => el !== active && !el.contains(active) && !active!.contains(el) && (!horizontal || fromHeader || !el.closest('header')),
+  );
+  const found = nearest(active!.getBoundingClientRect(), candidates, dir, isVisible);
   if (found) focus(preferRemembered(active!, found, dir), !event.repeat);
 }
 

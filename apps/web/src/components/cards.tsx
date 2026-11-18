@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import type { SeriesGroup } from '@tuitv/business-rules';
 import type { ContentKind, MediaItem } from '@tuitv/shared-models';
 import { itemHref, seriesHref } from '@/lib/hooks';
+import { isTv } from '@/lib/platform';
 import { useT } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { Thumb } from './Thumb';
@@ -129,28 +130,34 @@ export function MovieCard({ item }: { item: MediaItem }) {
 }
 
 export function SeriesCard({ series }: { series: SeriesGroup }) {
-  const t = useT();
   return (
     <PosterCard
       href={seriesHref(series.id)}
       title={series.title}
       image={series.logo}
-      meta={t('{n} episódios', { n: series.episodeCount })}
       action={<FavoriteButton id={series.id} kind="series" playlistId={series.playlistId} className="text-white" />}
     />
   );
 }
 
-/** Fileira horizontal de cartões, com setas de rolagem no desktop. */
+/**
+ * Fileira horizontal de cartões, com setas de rolagem no desktop.
+ * O título não é clicável; "Ver tudo" leva à lista completa.
+ */
 export function Row({ title, href, action, children }: { title: string; href?: string; action?: ReactNode; children: ReactNode }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
 
+  const tv = isTv();
   const update = () => {
     const node = ref.current;
     if (!node) return;
-    setEdges({ left: node.scrollLeft > 4, right: node.scrollLeft + node.clientWidth < node.scrollWidth - 4 });
+    // Setas só existem no desktop; na TV a fileira não re-renderiza a cada quadro de rolagem.
+    if (tv) return;
+    const left = node.scrollLeft > 4;
+    const right = node.scrollLeft + node.clientWidth < node.scrollWidth - 4;
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
   };
   useEffect(() => {
     update();
@@ -168,15 +175,7 @@ export function Row({ title, href, action, children }: { title: string; href?: s
   return (
     <section className="group/row mb-7">
       <div className="mb-2.5 flex items-baseline justify-between gap-3">
-        <h2 className="truncate text-lg font-bold">
-          {href ? (
-            <Link href={href} className="hover:text-accent">
-              {title}
-            </Link>
-          ) : (
-            title
-          )}
-        </h2>
+        <h2 className="truncate text-lg font-bold">{title}</h2>
         {action ??
           (href && (
             <Link href={href} className="shrink-0 text-sm font-semibold text-accent hover:underline">
@@ -190,8 +189,21 @@ export function Row({ title, href, action, children }: { title: string; href?: s
             <ChevronLeft className="size-6" />
           </button>
         )}
-        <div ref={ref} onScroll={update} className="no-scrollbar flex gap-3 overflow-x-auto scroll-smooth px-4 pt-1 pb-2 lg:px-12">
-          {children}
+        <div
+          ref={ref}
+          onScroll={update}
+          className={
+            tv ? 'no-scrollbar overflow-hidden px-4 pt-1 pb-2 lg:px-12' : 'no-scrollbar flex gap-3 overflow-x-auto scroll-smooth px-4 pt-1 pb-2 lg:px-12'
+          }
+          // TV: a fileira não rola — a trilha de cartões desliza com transform, animado pela GPU
+          // (sem redesenhar a fileira a cada quadro). O controle (remote.ts) define o deslocamento.
+          data-tv-carousel={tv ? '' : undefined}
+        >
+          {tv ? (
+            <div className="tv-track flex gap-3">{children}</div>
+          ) : (
+            children
+          )}
         </div>
         {edges.right && (
           <button type="button" aria-label={t('Próximo')} onClick={() => scroll(1)} className={cx(arrow, 'right-0 rounded-l-lg')}>
@@ -217,7 +229,9 @@ export function VirtualGrid<T>({
   minWidth = 150,
   ratio = 1.5,
   extra = 62,
-  gap = 14,
+  // TV: mais espaço entre as capas — a capa em foco cresce 18% a partir do centro e o respiro
+  // até as vizinhas fica parecido com o das fileiras.
+  gap = isTv() ? 38 : 14,
 }: {
   items: T[];
   render: (item: T) => ReactNode;
@@ -263,6 +277,7 @@ export function VirtualGrid<T>({
         virtualizer.getVirtualItems().map((row) => (
           <div
             key={row.key}
+            className="tv-grid-row"
             style={{
               position: 'absolute',
               top: 0,

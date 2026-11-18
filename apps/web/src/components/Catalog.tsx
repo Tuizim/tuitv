@@ -2,13 +2,15 @@
 
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useSearchParams } from 'next/navigation';
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GroupCount } from '@tuitv/business-rules';
 import { useRemoteConnection, useRemoteGroup, type RemoteLoad } from '@/lib/hooks';
 import { importErrorText, useT } from '@/lib/i18n';
 import { hasRemote, useStore } from '@/lib/store';
 import { POSTER_SLOT, Row, VirtualGrid } from './cards';
-import { Button, Dropdown, Empty, Notice, Spinner } from './ui';
+import { Button, Dropdown, Empty, Notice, Spinner, cx } from './ui';
+import { isTv } from '@/lib/platform';
+import { whenIdle } from '@/lib/idle';
 
 const ALL = '\u0000all';
 const ROW_HEIGHT = 372;
@@ -119,7 +121,11 @@ export function Catalog<T extends { group?: string; year?: number }>({
       </header>
 
       {showRows ? (
-        <CategoryRows kind={kind} remote={remote} rows={rows} render={render} onOpen={setGroup} untitled={t('Outros')} />
+        isTv() ? (
+          <TvCategoryRows kind={kind} remote={remote} rows={rows} render={render} onOpen={setGroup} untitled={t('Outros')} />
+        ) : (
+          <CategoryRows kind={kind} remote={remote} rows={rows} render={render} onOpen={setGroup} untitled={t('Outros')} />
+        )
       ) : visible.length === 0 && (load.loading || load.error) ? (
         <RemoteStatus load={load} />
       ) : (
@@ -189,6 +195,141 @@ function CategoryRows<T>({
     </div>
   );
 }
+
+/** Fileiras montadas logo ao abrir a tela na TV. */
+const TV_ROWS_FIRST = 6;
+/** Fileiras acrescentadas a cada pausa do controle. */
+const TV_ROWS_STEP = 3;
+/** Quantas fileiras ficam montadas à frente da fileira em foco (o resto espera). */
+const TV_ROWS_AHEAD = 12;
+/** Categorias do servidor pedidas com antecedência, abaixo da fileira em foco. */
+const TV_PREFETCH = 4;
+
+/**
+ * Fileiras por categoria na TV, com a técnica das plataformas de streaming: em vez de montar a
+ * fileira na hora em que ela aparece (o que pesava justamente enquanto o usuário navegava), as
+ * próximas fileiras são montadas antes, nas pausas do controle (lib/idle.ts), sempre algumas à
+ * frente do foco — e nunca desmontadas. As capas só são baixadas perto da tela (lib/lazyImages.ts)
+ * e as categorias do login são pedidas ao servidor com antecedência.
+ */
+function TvCategoryRows<T>({
+  kind,
+  remote,
+  rows,
+  render,
+  onOpen,
+  untitled,
+}: {
+  kind: 'movie' | 'series';
+  remote: boolean;
+  rows: { name: string; list: T[] }[];
+  render: (item: T) => ReactNode;
+  onOpen: (group: string) => void;
+  untitled: string;
+}) {
+  const [count, setCount] = useState(TV_ROWS_FIRST);
+  const [reached, setReached] = useState(0);
+  // Monta as próximas fileiras nas pausas, até [TV_ROWS_AHEAD] à frente do foco.
+  const limit = Math.min(rows.length, reached + TV_ROWS_AHEAD);
+  useEffect(() => {
+    if (count >= limit) return;
+    return whenIdle(() => setCount((n) => Math.min(limit, n + TV_ROWS_STEP)));
+  }, [count, limit]);
+  return (
+    <div
+      onFocus={(event) => {
+        const holder = (event.target as HTMLElement).closest<HTMLElement>('[data-row-index]');
+        const index = Number(holder?.dataset.rowIndex ?? -1);
+        if (index < 0) return;
+        if (index > reached) setReached(index);
+        // Segurança: se o usuário descer mais rápido que as pausas, garante fileiras à frente.
+        if (index >= count - 2) setCount((n) => Math.min(rows.length, n + TV_ROWS_STEP));
+      }}
+    >
+      {rows.slice(0, count).map((row, index) => (
+        <div key={row.name} data-row-index={index}>
+          <TvCategoryRow
+            kind={kind}
+            name={row.name}
+            list={row.list}
+            remote={remote}
+            fetch={index <= reached + TV_PREFETCH}
+            render={render}
+            onOpen={onOpen}
+            untitled={untitled}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type TvRowProps<T> = {
+  kind: 'movie' | 'series';
+  name: string;
+  list: T[];
+  remote: boolean;
+  fetch: boolean;
+  render: (item: T) => ReactNode;
+  onOpen: (group: string) => void;
+  untitled: string;
+};
+
+/** Uma fileira da TV; só re-renderiza quando o conteúdo dela muda (não a cada categoria que chega). */
+const TvCategoryRow = memo(
+  function TvCategoryRow<T>({ kind, name, list, remote, fetch, render, onOpen, untitled }: TvRowProps<T>) {
+    const t = useT();
+    const pending = remote && list.length === 0;
+    const load = useRemoteGroup(kind, name, pending && fetch);
+    if (pending) {
+      // Ainda não chegou: o título e capas vazias no lugar (sem texto de "carregando").
+      if (load.error) {
+        return (
+          <section className="mb-8">
+            <h2 className="mb-3 text-lg font-bold">{name}</h2>
+            <RemoteStatus load={load} />
+          </section>
+        );
+      }
+      if (!load.loading && fetch) return null; // categoria vazia no servidor
+      return (
+        <section className="group/row mb-7" aria-busy="true">
+          <h2 className="mb-2.5 text-lg font-bold">{name}</h2>
+          <div className="flex gap-3 overflow-hidden pt-1 pb-2">
+            {Array.from({ length: 7 }, (_, i) => (
+              <div key={i} className={cx(POSTER_SLOT, 'aspect-[2/3] rounded-lg bg-surface')} />
+            ))}
+          </div>
+        </section>
+      );
+    }
+    return (
+      <Row
+        title={name || untitled}
+        action={
+          name ? (
+            <button type="button" onClick={() => { onOpen(name); window.scrollTo({ top: 0 }); }} className="shrink-0 text-sm font-semibold text-accent hover:underline">
+              {t('Ver tudo')}
+            </button>
+          ) : undefined
+        }
+      >
+        {list.slice(0, ROW_ITEMS).map((item, index) => (
+          <div key={index} className={POSTER_SLOT}>
+            {render(item)}
+          </div>
+        ))}
+      </Row>
+    );
+  },
+  (a, b) =>
+    a.name === b.name &&
+    a.fetch === b.fetch &&
+    a.remote === b.remote &&
+    a.render === b.render &&
+    a.list.length === b.list.length &&
+    a.list[0] === b.list[0],
+) as <T>(props: TvRowProps<T>) => ReactNode;
 
 /** Fileira de uma categoria do servidor ainda não carregada: é pedida quando aparece na tela. */
 function PendingRow({ kind, name }: { kind: 'movie' | 'series'; name: string }) {

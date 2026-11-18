@@ -20,7 +20,7 @@ html[data-platform='tizen'] :focus:not(input):not(textarea):not(select):not(.gro
   background-color: #ffffff !important;
   color: #070c16 !important;
   border-color: transparent !important;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: none !important;
 }
 html[data-platform='tizen'] :focus:not(input):not(textarea):not(select):not(.group):not([data-testid='player']) * {
   color: inherit !important;
@@ -34,12 +34,16 @@ html[data-platform='tizen'] .tv-ctl:focus {
 
 /* Cartões: sem anel; a capa cresce e brilha. */
 html[data-platform='tizen'] .group > div:first-child {
-  /* Só transform anima (feito pela GPU); a sombra entra sem transição. */
-  transition: transform 0.15s ease-out;
+  /* Mudança instantânea: animar o tamanho redesenha a capa por vários quadros nas TVs. */
+  transition: none !important;
 }
 html[data-platform='tizen'] .group:focus > div:first-child {
-  transform: scale(1.08);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6), 0 0 26px rgba(56, 189, 248, 0.45) !important;
+  /* Cartão em foco bem maior que os demais, como na Netflix; cresce a partir da borda esquerda
+     (alinhado ao início da fileira) e os cartões seguintes abrem espaço (regra .tv-track abaixo). */
+  transform: scale(1.18);
+  transform-origin: left center;
+  /* Sombra curta e sem brilho difuso: sombras grandes custam caro para a GPU das TVs a cada passo. */
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6) !important;
 }
 html[data-platform='tizen'] .group > p:first-of-type {
   color: var(--tui-muted);
@@ -48,16 +52,49 @@ html[data-platform='tizen'] .group:focus > p:first-of-type {
   color: var(--tui-text);
   font-weight: 700;
 }
+/*
+ * Cartão em foco é a prioridade da tela: fica por cima dos vizinhos (a capa ampliada não passa
+ * "por baixo" da capa ao lado) e o título desce junto com ela. Abaixo das capas, na TV, só o
+ * título — a linha de detalhes (ano, categoria) sairia por cima da seção seguinte.
+ */
+html[data-platform='tizen'] .group:focus {
+  position: relative;
+  z-index: 5;
+}
+html[data-platform='tizen'] .group > p + p {
+  display: none;
+}
+html[data-platform='tizen'] .group:focus > p {
+  transform: translateY(22px);
+}
+/* Mais respiro entre cartões e entre seções, para a capa ampliada não encostar em nada. */
+html[data-platform='tizen'] .tv-track {
+  gap: 22px;
+}
+/*
+ * Os cartões à direita do que está em foco se afastam exatamente o quanto a capa cresceu (18% da
+ * largura), para o respiro à direita ficar igual ao da esquerda (o gap da trilha).
+ * Capas de filmes/séries: 160px → +29px; cartões de canal: 208px → +37px.
+ */
+html[data-platform='tizen'] .tv-track > :focus-within {
+  margin-right: 29px;
+}
+html[data-platform='tizen'] .tv-track > [class*='w-52']:focus-within {
+  margin-right: 37px;
+}
+html[data-platform='tizen'] section.group\/row {
+  margin-bottom: 44px;
+}
 html[data-platform='tizen'] .group .absolute.top-1.right-1 {
   display: none;
 }
 html[data-platform='tizen'] .group\/row > .relative > button {
   display: none !important;
 }
-/* Espaço para a capa crescer sem ser cortada pela fileira. */
+/* Espaço para a capa crescer (e o texto descer) sem ser cortada pela fileira. */
 html[data-platform='tizen'] .group\/row .no-scrollbar {
-  padding-top: 14px;
-  padding-bottom: 14px;
+  padding-top: 26px;
+  padding-bottom: 30px;
 }
 
 /* Campos de texto: sem contorno; fundo claro e traço embaixo. */
@@ -111,7 +148,9 @@ html[data-platform='tizen'] a.text-accent:focus {
  * Desempenho nas TVs: desfoque (filter: blur, backdrop-filter) é o efeito mais caro para a GPU
  * delas e deixa a navegação travada. Na TV os fundos ficam só translúcidos.
  */
-html[data-platform='tizen'] * {
+/* Só nas classes que usam desfoque: um seletor universal (*) pesaria em todo recálculo de estilo. */
+html[data-platform='tizen'] .backdrop-blur,
+html[data-platform='tizen'] .backdrop-blur-sm {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -124,4 +163,57 @@ html[data-platform='tizen'] .blur-xl {
 /* Rolagem suave é feita pelo controle (remote.ts); a do CSS duplicaria a animação. */
 html[data-platform='tizen'] .scroll-smooth {
   scroll-behavior: auto;
+}
+
+/*
+ * Desempenho na troca de foco (TVs têm CPU/GPU fracas):
+ *  - sem transições nos elementos que recebem foco: cada transição redesenha o elemento a cada
+ *    quadro; a mudança instantânea custa um único redesenho;
+ *  - contenção de layout nos cartões: mudanças dentro de um cartão não recalculam a página;
+ *  - sem a animação de entrada das telas (opacidade + deslocamento da página inteira).
+ */
+html[data-platform='tizen'] a,
+html[data-platform='tizen'] button,
+html[data-platform='tizen'] [role='option'],
+html[data-platform='tizen'] .group > p {
+  transition: none !important;
+}
+html[data-platform='tizen'] .group {
+  contain: layout style;
+}
+html[data-platform='tizen'] .tui-fade {
+  animation: none;
+}
+
+/*
+ * Fileiras na TV: a trilha de cartões desliza com transform (remote.ts), animado pela GPU — o
+ * mesmo recurso dos apps de TV. Rolar uma caixa com fundo transparente, nessas TVs, redesenha a
+ * fileira a cada quadro na thread principal e perde quadros. A camada própria (will-change) só
+ * existe na fileira em uso, para não gastar a memória de vídeo da TV com todas.
+ */
+html[data-platform='tizen'] .tv-track {
+  position: relative;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html[data-platform='tizen'] [data-tv-carousel]:focus-within .tv-track {
+  will-change: transform;
+}
+
+/*
+ * "Ver tudo" (grade de uma categoria): a capa em foco cresce a partir do centro — nas colunas os
+ * vizinhos não podem abrir espaço —, com respiro igual dos dois lados (espaço da grade maior na
+ * TV, ver VirtualGrid), e a linha em foco fica por cima da linha de baixo.
+ */
+html[data-platform='tizen'] .tv-grid-row .group:focus > div:first-child {
+  transform-origin: center;
+}
+html[data-platform='tizen'] .tv-grid-row:focus-within {
+  z-index: 2;
+}
+
+/* Ponteiro do controle (Magic Remote) não acende cartões: só o foco do controle indica a seleção. */
+html[data-platform='tizen'] .group:hover:not(:focus) > div:first-child {
+  transform: none !important;
+  translate: none !important;
+  box-shadow: none !important;
 }

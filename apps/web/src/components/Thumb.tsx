@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { cx } from './ui';
+import { lazyImageRef } from '@/lib/lazyImages';
+import { isTv } from '@/lib/platform';
 
 /** Logotipo/capa com substituto quando a imagem não existe ou falha. */
 export function Thumb({
@@ -16,6 +18,7 @@ export function Thumb({
   fit?: 'contain' | 'cover';
 }) {
   const [failed, setFailed] = useState<string | null>(null);
+  const tv = isTv();
   const show = src && failed !== src;
   const initials = name
     .replace(/[^\p{L}\p{N} ]/gu, ' ')
@@ -29,7 +32,9 @@ export function Thumb({
       {show ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={src}
+          key={src}
+          // TV: a capa só é baixada perto da tela (ver lib/lazyImages.ts).
+          {...(tv ? { 'data-lazy-src': src, ref: lazyImageRef } : { src })}
           alt=""
           loading="lazy"
           decoding="async"

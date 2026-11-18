@@ -3,7 +3,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Tv } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useBackLayer } from '@/lib/back';
 import { isTv } from '@/lib/platform';
@@ -136,17 +136,39 @@ function Live() {
         )
       : null;
 
+  const categoryOptions = [
+    { value: ALL, label: t('Todas as categorias'), hint: remote ? undefined : lib.live.length.toLocaleString() },
+    { value: FAVORITES, label: `★ ${t('Favoritos')}` },
+    ...lib.liveGroups.map((g) => ({ value: g.name, label: g.name, hint: g.count ? g.count.toLocaleString() : undefined })),
+  ];
+
+  if (tv) {
+    return (
+      <>
+        {fullscreen}
+        <TvLive
+          inert={full}
+          options={categoryOptions}
+          group={group}
+          onGroup={setGroup}
+          channels={channels}
+          current={current}
+          onSelect={select}
+          status={channels.length === 0 && (group === PENDING || load.loading || load.error) ? <RemoteStatus load={group === PENDING ? connection : load} /> : null}
+        />
+      </>
+    );
+  }
+
   return (
     <>
     {fullscreen}
-    {/* Com o player em tela cheia, a página por trás não recebe o foco do controle. */}
-    <div inert={tv && full} className="-mx-4 -mt-4 grid lg:mx-0 lg:mt-0 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="-mx-4 -mt-4 grid lg:mx-0 lg:mt-0 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div className="sticky top-16 z-20 bg-bg lg:static">
-        {current && !(tv && full) ? (
+        {current ? (
           <Player
             key="player"
             item={current}
-            focusable={!tv}
             className="aspect-video w-full lg:rounded-2xl"
             onPrev={() => step(-1)}
             onNext={() => step(1)}
@@ -167,11 +189,7 @@ function Live() {
             label={t('Categoria')}
             value={group}
             onChange={setGroup}
-            options={[
-              { value: ALL, label: t('Todas as categorias'), hint: remote ? undefined : lib.live.length.toLocaleString() },
-              { value: FAVORITES, label: `★ ${t('Favoritos')}` },
-              ...lib.liveGroups.map((g) => ({ value: g.name, label: g.name, hint: g.count ? g.count.toLocaleString() : undefined })),
-            ]}
+            options={categoryOptions}
           />
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
@@ -198,13 +216,25 @@ function Live() {
   );
 }
 
-function ChannelList({ channels, selectedId, onSelect }: { channels: MediaItem[]; selectedId?: string; onSelect: (item: MediaItem) => void }) {
+function ChannelList({
+  channels,
+  selectedId,
+  onSelect,
+  tv = false,
+  onFocusChannel,
+}: {
+  channels: MediaItem[];
+  selectedId?: string;
+  onSelect: (item: MediaItem) => void;
+  tv?: boolean;
+  onFocusChannel?: (item: MediaItem) => void;
+}) {
   const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: channels.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 60,
+    estimateSize: () => (tv ? 76 : 60),
     overscan: 8,
   });
 
@@ -219,13 +249,29 @@ function ChannelList({ channels, selectedId, onSelect }: { channels: MediaItem[]
   if (channels.length === 0) return <p className="px-2 py-8 text-center text-sm text-muted">{t('Nenhum canal encontrado.')}</p>;
 
   return (
-    <div ref={scrollRef} className="h-[55dvh] overflow-y-auto rounded-xl border border-line bg-surface lg:h-auto lg:flex-1" data-testid="channel-list">
+    <div
+      ref={scrollRef}
+      className={tv ? 'min-h-0 flex-1 overflow-y-auto px-2 py-1' : 'h-[55dvh] overflow-y-auto rounded-xl border border-line bg-surface lg:h-auto lg:flex-1'}
+      data-testid="channel-list"
+    >
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map((row) => {
           const channel = channels[row.index]!;
           return (
             <div key={channel.id} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: row.size, transform: `translateY(${row.start}px)` }}>
-              <ChannelRow channel={channel} selected={channel.id === selectedId} onSelect={onSelect} />
+              {tv ? (
+                <TvChannelRow
+                  number={row.index + 1}
+                  channel={channel}
+                  selected={channel.id === selectedId}
+                  // Alvo ao descer do cabeçalho: o canal atual (ou o primeiro).
+                  isDefault={selectedId ? channel.id === selectedId : row.index === 0}
+                  onSelect={onSelect}
+                  onFocus={onFocusChannel}
+                />
+              ) : (
+                <ChannelRow channel={channel} selected={channel.id === selectedId} onSelect={onSelect} />
+              )}
             </div>
           );
         })}
@@ -301,6 +347,251 @@ function NowPlaying({ item }: { item: MediaItem }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── TV ao vivo para televisores (Tizen) ─────────────────────────────────── */
+
+type CategoryOption = { value: string; label: string; hint?: string };
+
+/**
+ * Canal em foco na lista (TV). Fica fora do estado do React da página: mover o foco atualiza só o
+ * painel da direita — e com uma pequena pausa —, não a lista inteira a cada tecla.
+ */
+const focusedChannel = (() => {
+  let item: MediaItem | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => item,
+    set(next: MediaItem) {
+      if (item?.id === next.id) return;
+      item = next;
+      clearTimeout(timer);
+      timer = setTimeout(() => listeners.forEach((listener) => listener()), 120);
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+})();
+
+function useFocusedChannel() {
+  return useSyncExternalStore(focusedChannel.subscribe, focusedChannel.get, focusedChannel.get);
+}
+
+/** Devolve o foco ao canal que estava em foco na lista (ex.: ◀ a partir do painel). */
+function focusChannelInList() {
+  const id = focusedChannel.get()?.id;
+  const list = document.querySelector('[data-testid="channel-list"]');
+  const target =
+    (id && list?.querySelector<HTMLElement>(`[data-channel-id="${CSS.escape(id)}"]`)) || list?.querySelector<HTMLElement>('[data-nav-default]');
+  target?.focus({ preventScroll: true });
+}
+
+/**
+ * Layout de TV em três colunas: categorias | canais | ficha do canal em foco (agora e a seguir).
+ * OK no canal abre o player em tela cheia; ▲▼ trocam de canal lá dentro e Voltar retorna aqui.
+ * Sem prévia de vídeo na página: as TVs reproduzem um vídeo por vez e a lista fica leve.
+ */
+function TvLive({
+  inert,
+  options,
+  group,
+  onGroup,
+  channels,
+  current,
+  onSelect,
+  status,
+}: {
+  inert: boolean;
+  options: CategoryOption[];
+  group: string;
+  onGroup: (value: string) => void;
+  channels: MediaItem[];
+  current?: MediaItem;
+  onSelect: (item: MediaItem) => void;
+  status: ReactNode;
+}) {
+  const t = useT();
+  const wantChannels = useRef(true);
+  // Callback estável: as linhas (memo) não re-renderizam quando a página re-renderiza.
+  const selectRef = useRef(onSelect);
+  selectRef.current = onSelect;
+  const select = useCallback((item: MediaItem) => selectRef.current(item), []);
+  const categoryLabel = options.find((o) => o.value === group)?.label ?? '';
+
+  // Ao abrir a tela (ou confirmar uma categoria com OK), o foco vai para os canais.
+  useEffect(() => {
+    if (!wantChannels.current || channels.length === 0) return;
+    const timer = window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>('[data-testid="channel-list"] [data-nav-default]');
+      if (target) {
+        target.focus({ preventScroll: true });
+        wantChannels.current = false;
+      }
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [channels, group]);
+
+  return (
+    <div inert={inert} className="-mt-2 flex h-[calc(100vh-7rem)] gap-6" data-testid="tv-live">
+      <nav aria-label={t('Categoria')} className="flex w-64 shrink-0 flex-col" data-testid="tv-categories">
+        <h1 className="mb-3 px-3 text-2xl font-extrabold tracking-tight">{t('TV ao vivo')}</h1>
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {options.map((option) => {
+            const active = option.value === group;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-current={active ? 'true' : undefined}
+                // A categoria só muda com OK (passar por ela com o controle não troca a lista).
+                onClick={() => {
+                  wantChannels.current = true;
+                  onGroup(option.value);
+                  if (active) {
+                    document.querySelector<HTMLElement>('[data-testid="channel-list"] [data-nav-default]')?.focus({ preventScroll: true });
+                    wantChannels.current = false;
+                  }
+                }}
+                className={cx(
+                  'mb-1 flex h-12 w-full items-center justify-between gap-2 rounded-lg px-3 text-left text-base',
+                  active ? 'bg-surface-2 font-bold text-accent' : 'text-ink/80',
+                )}
+              >
+                <span className="truncate">{option.label}</span>
+                {option.hint && <span className="shrink-0 text-sm text-muted tabular-nums">{option.hint}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      <section className="flex min-w-0 flex-1 flex-col" aria-label={categoryLabel}>
+        <p className="mb-3 truncate px-3 text-lg text-muted">
+          {categoryLabel}
+          {channels.length > 0 && <span className="ml-2 text-base">· {t('{n} canais', { n: channels.length.toLocaleString() })}</span>}
+        </p>
+        {status ? (
+          <div className="px-3">{status}</div>
+        ) : (
+          <ChannelList tv channels={channels} selectedId={current?.id} onSelect={select} onFocusChannel={focusedChannel.set} />
+        )}
+      </section>
+
+      <aside className="w-[22rem] shrink-0">
+        <TvChannelPanel channels={channels} current={current} />
+      </aside>
+    </div>
+  );
+}
+
+/** Painel da direita: o canal em foco (só este componente re-renderiza ao mover o foco). */
+function TvChannelPanel({ channels, current }: { channels: MediaItem[]; current?: MediaItem }) {
+  const focused = useFocusedChannel();
+  const shown = focused && channels.some((c) => c.id === focused.id) ? focused : (current ?? channels[0]);
+  if (!shown) return null;
+  return <TvChannelInfo item={shown} playing={shown.id === current?.id} />;
+}
+
+const TvChannelRow = memo(function TvChannelRow({
+  number,
+  channel,
+  selected,
+  isDefault,
+  onSelect,
+  onFocus,
+}: {
+  number: number;
+  channel: MediaItem;
+  selected: boolean;
+  isDefault: boolean;
+  onSelect: (item: MediaItem) => void;
+  onFocus?: (item: MediaItem) => void;
+}) {
+  const { current } = useNowNext(channel, 0);
+  const now = useNow();
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(channel)}
+      onFocus={() => onFocus?.(channel)}
+      aria-current={selected ? 'true' : undefined}
+      data-channel-id={channel.id}
+      data-nav-default={isDefault ? '' : undefined}
+      className="flex h-[68px] w-full items-center gap-4 rounded-xl px-3 text-left"
+    >
+      <span className="w-9 shrink-0 text-right text-base text-muted tabular-nums">{number}</span>
+      <Thumb src={channel.logo} name={channel.name} className="h-12 w-20 shrink-0 rounded-lg" />
+      <span className="min-w-0 flex-1">
+        <span className={cx('flex items-center gap-2 text-lg font-semibold', selected && 'text-accent')}>
+          <span className="truncate">{channel.name}</span>
+          <UnavailableBadge id={channel.id} />
+        </span>
+        <span className="block truncate text-sm text-muted">{current?.title ?? channel.group ?? ''}</span>
+        {current && (
+          <span className="mt-1 block h-1 overflow-hidden rounded-full bg-white/10">
+            <span className="block h-full bg-accent" style={{ width: `${programmeProgress(current, now) * 100}%` }} />
+          </span>
+        )}
+      </span>
+    </button>
+  );
+});
+
+/** Ficha do canal em foco: logotipo, agora (com progresso), a seguir e favoritar. */
+function TvChannelInfo({ item, playing }: { item: MediaItem; playing: boolean }) {
+  const t = useT();
+  const language = useStore((s) => s.settings.language);
+  const { current, next } = useNowNext(item, 3);
+  const now = useNow();
+  return (
+    <div className="rounded-2xl bg-surface p-6">
+      <Thumb src={item.logo} name={item.name} className="mb-4 aspect-video w-full rounded-xl text-3xl" />
+      <h2 className="flex items-center gap-2 text-2xl font-bold">
+        <span className="truncate">{item.name}</span>
+      </h2>
+      <p className="mt-1 truncate text-base text-muted">{item.group ?? t('Sem categoria')}</p>
+      {/* Favoritar pela TV: ▶ a partir do canal chega aqui; ◀ volta ao mesmo canal na lista. */}
+      <div
+        className="mt-4"
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft') return;
+          event.preventDefault();
+          focusChannelInList();
+        }}
+      >
+        <FavoriteButton id={item.id} kind="live" playlistId={item.playlistId} withLabel className="tv-action h-12 w-full rounded-full text-base" />
+      </div>
+      {current ? (
+        <div className="mt-4">
+          <p className="text-xs font-bold tracking-wide text-accent uppercase">{t('Agora')}</p>
+          <p className="mt-1 line-clamp-2 text-lg font-semibold">{current.title}</p>
+          <p className="text-sm text-muted tabular-nums">
+            {formatHour(current.start, language)} – {formatHour(current.stop, language)}
+          </p>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full bg-accent" style={{ width: `${programmeProgress(current, now) * 100}%` }} />
+          </div>
+          {next.length > 0 && (
+            <ul className="mt-4 space-y-1 text-sm text-muted">
+              {next.map((programme) => (
+                <li key={programme.start} className="truncate">
+                  <span className="tabular-nums">{formatHour(programme.start, language)}</span> · {programme.title}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-muted">{t('Sem programação para este canal.')}</p>
+      )}
+      <p className="mt-4 text-sm text-muted">
+        {playing ? t('OK para voltar à tela cheia') : t('OK para assistir em tela cheia')} · {t('▶ favoritar')}
+      </p>
     </div>
   );
 }

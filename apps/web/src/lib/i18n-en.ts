@@ -360,4 +360,8 @@ export const en: Record<string, string> = {
   '▲▼ trocar canal · Voltar sai': '▲▼ change channel · Back exits',
   '◀▶ avançar/voltar · OK pausa · ▼ botões': '◀▶ seek · OK pauses · ▼ buttons',
   '▲ barra de progresso': '▲ progress bar',
+  'Sem programação para este canal.': 'No schedule for this channel.',
+  'OK para voltar à tela cheia': 'OK to go back to full screen',
+  'OK para assistir em tela cheia': 'OK to watch in full screen',
+  '▶ favoritar': '▶ favorite',
 };

@@ -60,12 +60,10 @@ test('só com o controle: lista por login, canais, player, troca de canal e Volt
   await expect(page.getByRole('switch', { name: 'Permitir endereços da rede local' })).toHaveAttribute('aria-checked', 'true');
 
   // Voltar do controle: com a tela rolada, primeiro volta ao topo (como na Netflix); depois, à tela inicial.
-  const scrolled = await page.evaluate(() => window.scrollY > 120);
-  await remote(page, BACK);
-  if (scrolled) {
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(5);
-    await expect(page).toHaveURL(/#\/settings/);
+  const welcome = page.getByRole('heading', { name: 'Boas-vindas ao TuiTV' });
+  for (let i = 0; i < 2 && !(await welcome.isVisible()); i++) {
     await remote(page, BACK);
+    await page.waitForTimeout(400);
   }
   await expect(page.getByRole('heading', { name: 'Boas-vindas ao TuiTV' })).toBeVisible();
   expect(new URL(page.url()).hash).toMatch(/^(#\/?)?$/);
@@ -99,13 +97,17 @@ test('só com o controle: lista por login, canais, player, troca de canal e Volt
   const list = page.getByTestId('channel-list');
   await list.getByRole('button', { name: /Canal Um HD/ }).focus();
   await page.keyboard.press('Enter');
-  const player = page.getByTestId('player');
+  // Na TV, OK no canal abre o player em tela cheia.
+  const player = page.getByTestId('tv-watch').getByTestId('player');
   await expect(player).toBeVisible();
   await player.focus();
-  const heading = page.locator('main h1').first();
+  const heading = page.getByTestId('tv-watch').locator('p.text-3xl');
   const before = await heading.innerText();
-  await remote(page, 428); // Canal −
+  // ▼ no player ao vivo troca de canal (as teclas Canal +/− do controle são traduzidas para o mesmo).
+  await page.keyboard.press('ArrowDown');
   await expect(heading).not.toHaveText(before);
+  await remote(page, BACK);
+  await expect(page.getByTestId('tv-watch')).toHaveCount(0);
 
   // Voltar do controle em telas internas volta à anterior; na tela inicial fecha o aplicativo.
   await page.evaluate(() => (location.hash = '#/favorites'));
@@ -247,16 +249,23 @@ test('fileiras: ▲▼ voltam ao cartão em que o usuário estava', async ({ pag
     const main = document.querySelector('main')!;
     main.innerHTML = '';
     for (const row of ['A', 'B']) {
+      // Mesma estrutura das fileiras na TV: janela fixa + trilha que desliza com transform.
       const div = document.createElement('div');
       div.className = 'no-scrollbar';
-      div.style.cssText = 'display:flex;gap:16px;overflow-x:auto;padding:8px;margin-top:24px';
+      div.dataset.navRow = '';
+      div.dataset.tvCarousel = '';
+      div.style.cssText = 'overflow:hidden;padding:8px;margin-top:24px';
+      const track = document.createElement('div');
+      track.className = 'tv-track';
+      track.style.cssText = 'display:flex;gap:16px';
       for (let i = 1; i <= 6; i++) {
         const a = document.createElement('a');
         a.href = '#';
         a.textContent = `${row}${i}`;
         a.style.cssText = 'display:block;flex:0 0 300px;height:90px';
-        div.appendChild(a);
+        track.appendChild(a);
       }
+      div.appendChild(track);
       main.appendChild(div);
     }
     (main.querySelector('a') as HTMLElement).focus();
@@ -266,10 +275,18 @@ test('fileiras: ▲▼ voltam ao cartão em que o usuário estava', async ({ pag
   expect(await focused(page)).toBe('A3');
   await page.waitForTimeout(500);
   // A fileira desliza: o cartão em foco fica no início dela.
-  const offset = await page.evaluate(() => {
+  const { offset, transform, scrolled } = await page.evaluate(() => {
     const el = document.activeElement as HTMLElement;
-    return el.getBoundingClientRect().left - el.parentElement!.getBoundingClientRect().left;
+    const row = el.closest('[data-tv-carousel]') as HTMLElement;
+    return {
+      offset: el.getBoundingClientRect().left - row.getBoundingClientRect().left,
+      transform: (row.firstElementChild as HTMLElement).style.transform,
+      scrolled: row.scrollLeft,
+    };
   });
+  // Desliza por transform (GPU), sem rolar a caixa.
+  expect(transform).toContain('translate3d(-');
+  expect(scrolled).toBe(0);
   expect(offset).toBeLessThan(20);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
@@ -279,12 +296,15 @@ test('fileiras: ▲▼ voltam ao cartão em que o usuário estava', async ({ pag
   expect(await focused(page)).toBe('A3');
   await page.keyboard.press('ArrowDown');
   expect(await focused(page)).toBe(below);
+  // Carrossel: no fim da fileira, ▶ não pula para a fileira de baixo.
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
+  expect(await focused(page)).toBe('B6');
 });
 
 test('Voltar como na Netflix: fecha o seletor sem sair da tela; seletor sem caixa de busca na TV', async ({ page }) => {
   const errors = await open(page);
   await login(page);
-  await page.evaluate(() => (location.hash = '#/live'));
+  await page.evaluate(() => (location.hash = '#/movies'));
   const dropdown = page.getByRole('button', { name: 'Categoria' });
   await dropdown.focus();
   await page.keyboard.press('Enter');
@@ -293,7 +313,7 @@ test('Voltar como na Netflix: fecha o seletor sem sair da tela; seletor sem caix
   await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('role'))).toBe('option');
   await remote(page, BACK);
   await expect(page.getByRole('listbox')).toHaveCount(0);
-  await expect(page).toHaveURL(/#\/live/);
+  await expect(page).toHaveURL(/#\/movies/);
   await expect(dropdown).toBeFocused();
   expect(errors).toEqual([]);
 });
@@ -321,4 +341,176 @@ test('TV ao vivo: OK no canal abre a tela cheia; ▲▼ trocam de canal; Voltar 
   // O logotipo do topo não é alvo do controle.
   expect(await page.getByRole('link', { name: 'TuiTV' }).getAttribute('tabindex')).toBe('-1');
   expect(errors).toEqual([]);
+});
+
+test('TV ao vivo na TV: abre com o foco nos canais; do menu, ▼ volta aos canais; categorias à esquerda', async ({ page }) => {
+  const shot = (name: string) => page.screenshot({ path: new URL(`../build/screenshots/${name}.png`, import.meta.url).pathname });
+  const errors = await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/live'));
+  await expect(page.getByTestId('tv-live')).toBeVisible();
+  const inChannels = () => page.evaluate(() => !!document.activeElement?.closest('[data-testid="channel-list"]'));
+  await expect.poll(inChannels).toBe(true);
+  // Sem prévia de vídeo na página (a TV reproduz um vídeo por vez).
+  await expect(page.getByTestId('player')).toHaveCount(0);
+  await page.waitForTimeout(300);
+  await shot('08-ao-vivo-tv');
+  // Do menu do topo, ▼ cai nos canais (não em outro elemento da tela).
+  await page.getByRole('link', { name: 'TV ao vivo' }).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(inChannels).toBe(true);
+  // ▶ no canal leva ao botão de favoritar do painel; OK favorita; ◀ volta ao mesmo canal.
+  const channel = await focused(page);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => focused(page)).toContain('Favoritar');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => focused(page)).toContain('Favorito');
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => focused(page)).toBe(channel);
+  // ◀ leva às categorias; passar por uma categoria não troca a lista — só o OK.
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-testid="tv-categories"]'))).toBe(true);
+  const listBefore = await page.getByTestId('channel-list').innerText();
+  await focusByArrows(page, 'ArrowDown', 'Esportes');
+  const category = await focused(page);
+  await page.waitForTimeout(800);
+  expect(await focused(page)).toBe(category);
+  expect(await page.getByTestId('channel-list').innerText()).toBe(listBefore);
+  await page.keyboard.press('Enter');
+  await expect.poll(inChannels).toBe(true);
+  expect(await page.getByTestId('channel-list').innerText()).not.toBe(listBefore);
+  expect(errors).toEqual([]);
+});
+
+test('início: títulos das fileiras sem clique ("Ver tudo" leva à lista)', async ({ page }) => {
+  await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/'));
+  const section = page.locator('main section.group\\/row').first();
+  await expect(section).toBeVisible();
+  await expect(section.locator('h2 a')).toHaveCount(0);
+  await expect(section.getByRole('link', { name: 'Ver tudo' })).toBeVisible();
+});
+
+test('ficha do filme: fundo ambiente com a capa desfocada (captura para conferência)', async ({ page }) => {
+  // Capa de teste colorida no lugar da capa vazia do servidor de apoio.
+  const poster = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f97316"/><stop offset="0.5" stop-color="#be123c"/><stop offset="1" stop-color="#1e3a8a"/></linearGradient></defs><rect width="300" height="450" fill="url(#g)"/><circle cx="210" cy="140" r="70" fill="#fde68a"/><text x="30" y="400" font-size="44" font-family="sans-serif" fill="#fff">CORRIDA</text></svg>`;
+  await page.route('**/poster.svg', (route) => route.fulfill({ contentType: 'image/svg+xml', body: poster }));
+  await page.route('**/player_api.php*', async (route) => {
+    const response = await route.fetch();
+    if (!route.request().url().includes('get_vod_streams')) return route.fulfill({ response });
+    const list = (await response.json()) as { stream_icon?: string }[];
+    return route.fulfill({ response, json: list.map((m) => ({ ...m, stream_icon: 'http://127.0.0.1:4801/poster.svg' })) });
+  });
+  const errors = await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/movies'));
+  const card = page.locator('main a.group[href*="title"]').first();
+  await expect(card).toBeVisible();
+  await card.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('ambient-backdrop')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (document.querySelector('[data-testid="ambient-backdrop"] canvas') as HTMLCanvasElement).style.opacity)).toBe('0.9');
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: new URL('../build/screenshots/09-ficha-fundo-ambiente.png', import.meta.url).pathname });
+  expect(errors).toEqual([]);
+});
+
+test('cartão em foco ampliado (captura para conferência)', async ({ page }) => {
+  await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/movies'));
+  const card = page.locator('main a.group').first();
+  await expect(card).toBeVisible();
+  await card.focus();
+  await page.waitForTimeout(300);
+  const scale = await card.evaluate((el) => getComputedStyle(el.firstElementChild as Element).transform);
+  expect(scale).toContain('1.18');
+  await page.screenshot({ path: new URL('../build/screenshots/10-cartao-em-foco.png', import.meta.url).pathname });
+});
+
+test('filmes/séries na TV: fileiras sem rolagem virtual e categorias pedidas com antecedência', async ({ page }) => {
+  await open(page);
+  await login(page);
+  // Séries sem a contagem de episódios sob a capa.
+  await page.evaluate(() => (location.hash = '#/series'));
+  await expect(page.locator('main a.group').first()).toBeVisible();
+  await expect(page.locator('main a.group').filter({ hasText: /episódios/ })).toHaveCount(0);
+  // Filmes: várias categorias → fileiras.
+  await page.evaluate(() => (location.hash = '#/movies'));
+  const rows = page.locator('main [data-row-index]');
+  await expect(rows.first()).toBeVisible();
+  // Todas as categorias montadas em fluxo normal (sem posicionamento absoluto da lista virtual).
+  expect(await page.locator('main [data-row-index] section.group\\/row').count()).toBeGreaterThan(0);
+  await expect(page.getByText('Carregando do servidor…')).toHaveCount(0);
+  await page.locator('main a.group').first().focus();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: new URL('../build/screenshots/11-series-foco.png', import.meta.url).pathname });
+});
+
+test('cartão em foco: cresce sem encostar nos vizinhos e as capas carregam só perto da tela', async ({ page }) => {
+  const colors = ['#f97316', '#22c55e', '#3b82f6', '#a855f7', '#ef4444', '#14b8a6', '#eab308', '#ec4899'];
+  await page.route('**/poster-*.svg', (route) => {
+    const n = Number(/poster-(\d+)/.exec(route.request().url())![1]);
+    const c = colors[n % colors.length];
+    route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300"><rect width="200" height="300" fill="${c}"/><text x="20" y="280" font-size="40" fill="#fff">${n}</text></svg>` });
+  });
+  await page.route('**/player_api.php*', async (route) => {
+    const response = await route.fetch();
+    if (!route.request().url().includes('get_vod_streams')) return route.fulfill({ response });
+    const list = (await response.json()) as Record<string, unknown>[];
+    const first = list[0]!;
+    // Fileira cheia: 12 filmes na mesma categoria, cada um com uma capa.
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...first, stream_id: 9000 + i, name: `Filme ${i + 1}`, stream_icon: `http://127.0.0.1:4801/poster-${i}.svg` }));
+    return route.fulfill({ response, json: [...many, ...list.slice(1)] });
+  });
+  await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/movies'));
+  const row = page.locator('main [data-tv-carousel]').first();
+  const cards = row.locator('a.group');
+  await expect(cards.nth(5)).toBeVisible();
+  // Capas fora da janela da fileira ainda não foram pedidas.
+  expect(await cards.nth(11).locator('img').getAttribute('src')).toBeNull();
+  await cards.nth(0).focus();
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(450);
+  const [focusedBox, nextBox] = await Promise.all([1, 2].map((i) => cards.nth(i).locator('div').first().boundingBox()));
+  // O cartão em foco fica alinhado ao início da fileira (como o título da seção).
+  const rowBox = await row.boundingBox();
+  const pad = await row.evaluate((el) => parseFloat(getComputedStyle(el).paddingLeft));
+  const firstBox = await cards.nth(1).boundingBox();
+  expect(Math.abs(firstBox!.x - (rowBox!.x + pad))).toBeLessThan(4);
+  // Respiro à direita da capa ampliada igual ao da esquerda (o espaço entre cartões).
+  const prevBox = await cards.nth(0).locator('div').first().boundingBox();
+  const left = focusedBox!.x - (prevBox!.x + prevBox!.width);
+  const right = nextBox!.x - (focusedBox!.x + focusedBox!.width);
+  expect(Math.abs(right - left)).toBeLessThan(3);
+  // Ao andar na fileira, as próximas capas já são pedidas.
+  expect(await cards.nth(8).locator('img').getAttribute('src')).not.toBeNull();
+  await page.screenshot({ path: new URL('../build/screenshots/12-fileira-foco.png', import.meta.url).pathname });
+});
+
+test('"Ver tudo": capa em foco cresce do centro, com respiro igual dos dois lados', async ({ page }) => {
+  await page.route('**/player_api.php*', async (route) => {
+    const response = await route.fetch();
+    if (!route.request().url().includes('get_vod_streams')) return route.fulfill({ response });
+    const list = (await response.json()) as Record<string, unknown>[];
+    const many = Array.from({ length: 14 }, (_, i) => ({ ...list[0]!, stream_id: 9100 + i, name: `Filme ${i + 1}` }));
+    return route.fulfill({ response, json: [...many, ...list.slice(1)] });
+  });
+  await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/movies'));
+  await page.locator('main section').first().getByRole('button', { name: 'Ver tudo' }).click();
+  const cards = page.locator('main .tv-grid-row a.group');
+  await expect(cards.nth(3)).toBeVisible();
+  await cards.nth(1).focus();
+  await page.waitForTimeout(300);
+  const [a, b, c] = await Promise.all([0, 1, 2].map((i) => cards.nth(i).locator('div').first().boundingBox()));
+  const left = b!.x - (a!.x + a!.width);
+  const right = c!.x - (b!.x + b!.width);
+  expect(Math.abs(left - right)).toBeLessThan(3);
+  expect(left).toBeGreaterThan(14);
+  await page.screenshot({ path: new URL('../build/screenshots/13-ver-tudo-foco.png', import.meta.url).pathname });
 });

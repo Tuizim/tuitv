@@ -6,6 +6,7 @@ import { Suspense, useEffect, useRef } from 'react';
 import { UnavailableBadge } from '@/components/cards';
 import { Synopsis } from '@/components/Synopsis';
 import { Thumb } from '@/components/Thumb';
+import { AmbientBackdrop } from '@/components/AmbientBackdrop';
 import { Empty, cx } from '@/components/ui';
 import { watchHref } from '@/lib/hooks';
 import { formatClock, formatDuration, useT } from '@/lib/i18n';
@@ -66,16 +67,9 @@ function Title() {
   };
 
   return (
-    <div className="relative -mx-4 -mt-4 min-h-[calc(100vh-4rem)] overflow-hidden lg:-mx-12" data-testid="title-page">
-      {backdrop && (
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-[65%]" aria-hidden>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={backdrop} alt="" referrerPolicy="no-referrer" className="size-full object-cover opacity-50" onError={(e) => (e.currentTarget.style.display = 'none')} />
-          <div className="absolute inset-0 bg-gradient-to-r from-bg via-bg/70 to-bg/10" />
-          <div className="absolute inset-0 bg-gradient-to-t from-bg via-transparent to-transparent" />
-        </div>
-      )}
-      <div className="relative flex gap-10 px-4 pt-10 pb-12 lg:px-12">
+    <div className="relative -mx-4 -mt-20 min-h-screen overflow-hidden lg:-mx-12" data-testid="title-page">
+      <AmbientBackdrop src={backdrop} />
+      <div className="relative flex gap-10 px-4 pt-28 pb-12 lg:px-12">
         <div className="relative hidden w-56 shrink-0 overflow-hidden rounded-xl shadow-2xl shadow-black/60 sm:block">
           <Thumb src={item.logo} name={item.name} fit="cover" className="aspect-[2/3] w-full text-3xl" />
           {progress > 0 && (
