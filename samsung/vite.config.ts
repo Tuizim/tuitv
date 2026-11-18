@@ -25,6 +25,8 @@ function tizenCompat(): Plugin {
     enforce: 'post',
     async generateBundle(_options, bundle) {
       for (const file of Object.values(bundle)) {
+        // Imagens embutidas: só formatos que todo motor das TVs decodifica (WebP/AVIF não são garantidos no Tizen).
+        if (file.type === 'chunk' && /data:image\/(webp|avif)/.test(file.code)) this.error('Imagem WebP/AVIF embutida: use PNG, JPEG ou SVG no pacote Tizen.');
         if (file.type !== 'asset' || !file.fileName.endsWith('.css')) continue;
         const source = typeof file.source === 'string' ? file.source : new TextDecoder().decode(file.source);
         const css = await compatCss(source, file.fileName);

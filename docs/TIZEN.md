@@ -26,6 +26,7 @@ Não há uma segunda interface para manter: as telas vêm de `web/app/src`.
 
 O build garante isso automaticamente:
 
+- **Imagens embutidas** só em PNG, JPEG ou SVG: o motor das TVs não garante WebP/AVIF, e o build falha se encontrar um deles (o logotipo é PNG por isso).
 - **JavaScript** compilado para Chromium 69 e verificado como ES2019 (`scripts/check-syntax.mjs`); APIs ausentes vêm do core-js.
 - **CSS** do Tailwind v4 reescrito para Chromium 69 (`css-compat.ts`): sem `@layer`, `:where()`/`:is()` expandidos,
   valores iniciais de `@property`, `translate`/`scale`/`rotate` → `transform`, alternativas para `dvh` e `aspect-ratio`,

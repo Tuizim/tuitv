@@ -80,8 +80,9 @@ await write('web/app/public/icons/icon-maskable-512.png', await tile(512, 512, 0
 await write('web/app/public/icons/apple-touch-icon.png', await tile(180, 180, 0.76));
 
 // Logotipos dentro do código (Web e Samsung): funcionam com qualquer base de endereço, inclusive file:// na TV.
-const logoWebp = await sharp(await logo(200)).webp({ quality: 90, alphaQuality: 100 }).toBuffer();
-const logoMeta = await sharp(logoWebp).metadata();
+// PNG (não WebP): o motor das TVs Samsung não garante WebP. Paleta de cores para manter o arquivo leve.
+const logoPng = await sharp(await logo(200)).png({ palette: true, quality: 95, effort: 10, compressionLevel: 9 }).toBuffer();
+const logoMeta = await sharp(logoPng).metadata();
 const iconSvg = svgTight.replace(/\s*\n\s*/g, ' ').trim();
 await write(
   'web/packages/design-system/src/brand.ts',
@@ -89,7 +90,7 @@ await write(
     `/** Gato do TuiTV (SVG), para ícone e tela de carregamento. */\n` +
     `export const brandIcon = 'data:image/svg+xml;base64,${Buffer.from(iconSvg).toString('base64')}';\n\n` +
     `/** Logotipo com o nome (gato + "TuiTV"), ${logoMeta.width}x${logoMeta.height}. */\n` +
-    `export const brandLogo = 'data:image/webp;base64,${logoWebp.toString('base64')}';\n\n` +
+    `export const brandLogo = 'data:image/png;base64,${logoPng.toString('base64')}';\n\n` +
     `/** Largura ÷ altura do logotipo. */\n` +
     `export const brandLogoRatio = ${(logoMeta.width / logoMeta.height).toFixed(4)};\n`,
 );

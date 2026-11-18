@@ -50,6 +50,25 @@ test('abre a partir de file://, registra as teclas do controle e foca a interfac
   expect(errors).toEqual([]);
 });
 
+test('marca: logotipo no cabeçalho e nas boas-vindas carrega em formato que a TV decodifica', async ({ page }) => {
+  const errors = await open(page);
+  await expect(page.getByRole('heading', { name: 'Boas-vindas ao TuiTV' })).toBeVisible();
+  const header = page.locator('header img[alt="TuiTV"]');
+  await expect(header).toBeVisible();
+  const logos = await page.locator('img[alt="TuiTV"]').evaluateAll((imgs) =>
+    (imgs as HTMLImageElement[]).map((img) => ({ loaded: img.complete && img.naturalWidth > 0, type: img.src.slice(0, 22), w: img.getBoundingClientRect().width, h: img.getBoundingClientRect().height })),
+  );
+  expect(logos.length).toBeGreaterThanOrEqual(2);
+  for (const logo of logos) {
+    expect(logo).toMatchObject({ loaded: true, type: 'data:image/png;base64,' });
+    // Proporção do logotipo preservada (altura pela fonte, largura automática).
+    expect(logo.w / logo.h).toBeGreaterThan(3);
+  }
+  // Cabeçalho: altura legível na TV.
+  expect((await header.boundingBox())!.height).toBeGreaterThan(30);
+  expect(errors).toEqual([]);
+});
+
 test('só com o controle: lista por login, canais, player, troca de canal e Voltar', async ({ page }) => {
   const errors = await open(page);
 
