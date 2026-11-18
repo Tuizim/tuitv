@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
+import { readdirSync, readFileSync } from 'node:fs';
 import { auditCss, compatCss } from './css-compat.ts';
 
 /**
@@ -10,6 +11,8 @@ import { auditCss, compatCss } from './css-compat.ts';
 const CHROME_TARGET = 'chrome69';
 
 const webSrc = fileURLToPath(new URL('../web/app/src', import.meta.url));
+/** Arquivos da marca (logotipo, gato), copiados para o pacote como arquivos: o Tizen bloqueia imagens "data:". */
+const brandDir = fileURLToPath(new URL('../web/app/public/brand/', import.meta.url));
 const shim = (name: string) => fileURLToPath(new URL(`./src/shims/${name}`, import.meta.url));
 
 /**
@@ -24,9 +27,11 @@ function tizenCompat(): Plugin {
     apply: 'build',
     enforce: 'post',
     async generateBundle(_options, bundle) {
+      for (const name of readdirSync(brandDir)) this.emitFile({ type: 'asset', fileName: `brand/${name}`, source: readFileSync(brandDir + name) });
       for (const file of Object.values(bundle)) {
         // Imagens embutidas: só formatos que todo motor das TVs decodifica (WebP/AVIF não são garantidos no Tizen).
-        if (file.type === 'chunk' && /data:image\/(webp|avif)/.test(file.code)) this.error('Imagem WebP/AVIF embutida: use PNG, JPEG ou SVG no pacote Tizen.');
+        // A política de segurança padrão do Tizen (default-src *) bloqueia imagens "data:": imagens vão como arquivo.
+        if (file.type === 'chunk' && /data:image\//.test(file.code)) this.error('Imagem embutida (data:image) no pacote Tizen: a TV a bloqueia. Use um arquivo (ver web/app/public/brand).');
         if (file.type !== 'asset' || !file.fileName.endsWith('.css')) continue;
         const source = typeof file.source === 'string' ? file.source : new TextDecoder().decode(file.source);
         const css = await compatCss(source, file.fileName);
@@ -62,6 +67,8 @@ export default defineConfig(({ command }) => ({
   },
   define: {
     'process.env.NEXT_PUBLIC_BASE_PATH': JSON.stringify(''),
+    // Marca relativa ao index.html do pacote (aberto como arquivo local na TV).
+    'process.env.NEXT_PUBLIC_ASSET_BASE': JSON.stringify('.'),
     // A TV não tem CORS (config.xml libera as origens): o proxy da versão Web não é usado.
     'process.env.NEXT_PUBLIC_CORS_PROXY': JSON.stringify(''),
     // Logins consultados por categoria: catálogos inteiros pesam demais na memória das TVs.

@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 
 const APP = new URL('../dist/index.html', import.meta.url).href;
@@ -50,23 +52,30 @@ test('abre a partir de file://, registra as teclas do controle e foca a interfac
   expect(errors).toEqual([]);
 });
 
-test('marca: logotipo no cabeçalho e nas boas-vindas carrega em formato que a TV decodifica', async ({ page }) => {
-  const errors = await open(page);
+test('marca: logotipo e gato carregam como na TV (política de segurança do Tizen bloqueia imagens "data:")', async ({ page }) => {
+  // Cópia do index.html com a regra de imagens que o Tizen aplica sem política no config.xml (default-src *).
+  const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+  const html = readFileSync(`${dist}index.html`, 'utf8').replace('<head>', '<head><meta http-equiv="Content-Security-Policy" content="img-src *">');
+  writeFileSync(`${dist}index-csp-tizen.html`, html);
+  const blocked: string[] = [];
+  page.on('console', (m) => m.text().includes('Content Security Policy') && blocked.push(m.text()));
+  await page.goto(new URL('../dist/index-csp-tizen.html', import.meta.url).href);
   await expect(page.getByRole('heading', { name: 'Boas-vindas ao TuiTV' })).toBeVisible();
-  const header = page.locator('header img[alt="TuiTV"]');
-  await expect(header).toBeVisible();
-  const logos = await page.locator('img[alt="TuiTV"]').evaluateAll((imgs) =>
-    (imgs as HTMLImageElement[]).map((img) => ({ loaded: img.complete && img.naturalWidth > 0, type: img.src.slice(0, 22), w: img.getBoundingClientRect().width, h: img.getBoundingClientRect().height })),
+  await expect(page.locator('header img[data-brand="logo"]')).toBeVisible();
+  const images = await page.locator('img[data-brand]').evaluateAll((imgs) =>
+    (imgs as HTMLImageElement[]).map((img) => ({ brand: img.dataset.brand, loaded: img.complete && img.naturalWidth > 0, alt: img.alt, src: img.getAttribute('src'), ratio: img.getBoundingClientRect().width / img.getBoundingClientRect().height })),
   );
-  expect(logos.length).toBeGreaterThanOrEqual(2);
-  for (const logo of logos) {
-    expect(logo).toMatchObject({ loaded: true, type: 'data:image/png;base64,' });
-    // Proporção do logotipo preservada (altura pela fonte, largura automática).
-    expect(logo.w / logo.h).toBeGreaterThan(3);
+  expect(images.filter((i) => i.brand === 'logo').length).toBeGreaterThanOrEqual(2);
+  for (const img of images) {
+    // Arquivo do pacote (relativo ao index.html), carregado e sem texto alternativo no lugar da imagem.
+    expect(img).toMatchObject({ loaded: true, alt: '' });
+    expect(img.src).toMatch(/^\.\/brand\//);
+    if (img.brand === 'logo') expect(img.ratio).toBeGreaterThan(3);
   }
-  // Cabeçalho: altura legível na TV.
-  expect((await header.boundingBox())!.height).toBeGreaterThan(30);
-  expect(errors).toEqual([]);
+  // Cabeçalho: logotipo em altura legível e nenhum "TuiTV" escrito no lugar dele.
+  expect((await page.locator('header img[data-brand="logo"]').boundingBox())!.height).toBeGreaterThan(30);
+  expect(await page.locator('header a[aria-label="TuiTV"]').innerText()).toBe('');
+  expect(blocked).toEqual([]);
 });
 
 test('só com o controle: lista por login, canais, player, troca de canal e Voltar', async ({ page }) => {

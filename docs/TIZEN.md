@@ -26,7 +26,7 @@ Não há uma segunda interface para manter: as telas vêm de `web/app/src`.
 
 O build garante isso automaticamente:
 
-- **Imagens embutidas** só em PNG, JPEG ou SVG: o motor das TVs não garante WebP/AVIF, e o build falha se encontrar um deles (o logotipo é PNG por isso).
+- **Imagens são arquivos do pacote**, nunca embutidas em `data:`: sem política no `config.xml`, o Tizen aplica `default-src *`, que bloqueia imagens `data:` (a TV mostraria só o texto alternativo). O build falha se encontrar uma; a marca vai em `brand/` (de `web/app/public/brand`), em PNG/SVG — WebP não é garantido nas TVs.
 - **JavaScript** compilado para Chromium 69 e verificado como ES2019 (`scripts/check-syntax.mjs`); APIs ausentes vêm do core-js.
 - **CSS** do Tailwind v4 reescrito para Chromium 69 (`css-compat.ts`): sem `@layer`, `:where()`/`:is()` expandidos,
   valores iniciais de `@property`, `translate`/`scale`/`rotate` → `transform`, alternativas para `dvh` e `aspect-ratio`,
