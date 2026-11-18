@@ -47,6 +47,14 @@ fun groupSeries(items: List<MediaItem>): List<SeriesGroup> {
 }
 
 /** Próximo episódio na ordem da série, se existir. */
+/**
+ * Os episódios trazem dados próprios (miniatura diferente da capa da série ou sinopse)?
+ * Com dados, a tela mostra cartões no estilo Netflix; sem, uma grade compacta de episódios.
+ * Mesma regra de hasEpisodeDetails em web/packages/business-rules/src/library.ts.
+ */
+fun hasEpisodeDetails(episodes: List<MediaItem>, seriesLogo: String?): Boolean =
+    episodes.any { (it.logo != null && it.logo != seriesLogo) || !it.description.isNullOrBlank() }
+
 fun nextEpisode(series: SeriesGroup, currentItemId: String): MediaItem? {
     val flat = series.seasons.flatMap { it.episodes }
     val index = flat.indexOfFirst { it.id == currentItemId }

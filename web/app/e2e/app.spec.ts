@@ -260,6 +260,8 @@ test('login: categorias, séries e favoritos vêm do servidor sob demanda', asyn
   await expect(first).toContainText('Uma família chega ao vale.');
   await expect(first.locator('img')).toHaveAttribute('src', /thumb-7001\.png/);
   await expect(page.getByTestId('series-page').getByTestId('ambient-backdrop')).toBeAttached();
+  await expect(page.getByTestId('episodes')).toHaveAttribute('data-layout', 'cards');
+  await page.screenshot({ path: 'test-results/serie-cartoes.png', fullPage: true });
   expect(calls).toContain('get_series_info');
   await page.getByRole('button', { name: 'Adicionar aos favoritos' }).click();
   await flushStorage(page);
@@ -314,6 +316,11 @@ test('filmes, séries, temporadas, episódios assistidos e busca global', async 
   // Marca o primeiro episódio como assistido: o próximo a assistir passa a ser o E2.
   await page.getByRole('button', { name: 'Marcar como assistido' }).first().click();
   await expect(page.getByRole('link', { name: 'Assistir T1 E2' })).toBeVisible();
+  // Lista sem miniatura nem sinopse por episódio: grade compacta, com o próximo episódio em destaque.
+  await expect(page.getByTestId('episodes')).toHaveAttribute('data-layout', 'grid');
+  await expect(page.getByRole('link', { name: '2. Episódio 2' })).toContainText('Próximo');
+  await expect(page.getByRole('link', { name: '1. Episódio 1' })).toContainText('Assistido');
+  await page.screenshot({ path: 'test-results/serie-grade.png', fullPage: true });
   await page.reload();
   await expect(page.getByRole('link', { name: 'Assistir T1 E2' })).toBeVisible();
 

@@ -39,6 +39,16 @@ class RulesTest {
     }
 
     @Test
+    fun `dados proprios dos episodios decidem entre cartoes e grade`() {
+        fun ep(logo: String? = null, description: String? = null) =
+            MediaItem("p:e", "p", "e", ContentKind.SERIES, "E", "http://x", logo, null, null, null, null, null, null, description, 0)
+        assertFalse(hasEpisodeDetails(listOf(ep(logo = "capa.jpg"), ep()), "capa.jpg"))
+        assertTrue(hasEpisodeDetails(listOf(ep(logo = "capa.jpg"), ep(logo = "ep2.jpg")), "capa.jpg"))
+        assertTrue(hasEpisodeDetails(listOf(ep(description = "  "), ep(description = "Sinopse")), null))
+        assertFalse(hasEpisodeDetails(listOf(ep(description = "  ")), null))
+    }
+
+    @Test
     fun `id estavel quando apenas o endereco muda`() {
         val before = ItemBuilder("p").add(parseM3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"x\" group-title=\"G\",Canal X\nhttp://a.b/1?token=AAA\n").entries)
         val after = ItemBuilder("p").add(parseM3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"x\" group-title=\"Outro\",Canal X\nhttp://c.d/9?token=BBB\n").entries)

@@ -125,6 +125,15 @@ export function groupSeries(items: MediaItem[]): SeriesGroup[] {
   return out;
 }
 
+/**
+ * Os episódios trazem dados próprios (miniatura diferente da capa da série ou sinopse)?
+ * Com dados, a tela mostra cartões no estilo Netflix; sem, uma grade compacta de episódios.
+ * Mesma regra em android/core/.../Catalog.kt.
+ */
+export function hasEpisodeDetails(episodes: readonly MediaItem[], seriesLogo?: string): boolean {
+  return episodes.some((e) => (!!e.logo && e.logo !== seriesLogo) || !!e.description?.trim());
+}
+
 /** Próximo episódio na ordem da série, se existir. */
 export function nextEpisode(series: SeriesGroup, currentItemId: string): MediaItem | undefined {
   const flat = series.seasons.flatMap((s) => s.episodes);

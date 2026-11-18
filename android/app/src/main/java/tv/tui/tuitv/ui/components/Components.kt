@@ -455,6 +455,70 @@ fun EpisodeCard(
     }
 }
 
+/**
+ * Bloco da grade de episódios (quando a lista não traz miniatura nem sinopse por episódio): número grande,
+ * título próprio (se houver), duração e o estado — "Próximo"/"Continuar" em destaque, progresso ou assistido.
+ * Mesmo desenho da Web e da Samsung.
+ */
+@Composable
+fun EpisodeTile(
+    number: Int,
+    title: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    duration: String? = null,
+    watched: Boolean = false,
+    next: Boolean = false,
+    progress: Float? = null,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val compact = device().compact
+    val secondary = if (focused) TuiColors.Navy.copy(alpha = 0.72f) else TuiColors.Muted
+    val dim = watched && !next && !focused
+    Surface(
+        onClick = onClick,
+        interactionSource = interaction,
+        modifier = modifier.height(if (compact) 112.dp else 132.dp).tapToClick(interaction, onClick = onClick),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (next) TuiColors.Cyan.copy(alpha = 0.14f) else TuiColors.NavyRaised.copy(alpha = if (dim) 0.4f else 0.7f),
+            contentColor = if (dim) TuiColors.Muted else TuiColors.White,
+            focusedContainerColor = TuiColors.White,
+            focusedContentColor = TuiColors.Navy,
+            pressedContainerColor = TuiColors.White.copy(alpha = 0.85f),
+            pressedContentColor = TuiColors.Navy,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = if (next) Border(androidx.compose.foundation.BorderStroke(2.dp, TuiColors.Cyan), shape = RoundedCornerShape(14.dp)) else Border.None,
+            focusedBorder = Border.None,
+            pressedBorder = Border.None,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f, pressedScale = 0.97f),
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(if (compact) 12.dp else 14.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) {
+                        Text("EPISÓDIO", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.5.sp), color = secondary)
+                        Text(if (number > 0) "$number" else "•", style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold))
+                    }
+                    if (next) {
+                        Box(Modifier.clip(RoundedCornerShape(50)).background(if (focused) TuiColors.Navy else TuiColors.Cyan).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                            Text(if (progress != null) "CONTINUAR" else "PRÓXIMO", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = if (focused) TuiColors.White else TuiColors.Navy)
+                        }
+                    }
+                }
+                if (title != null) Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                Spacer(Modifier.weight(1f))
+                val status = if (watched) "✓ Assistido" else duration
+                if (status != null) Text(status, style = MaterialTheme.typography.labelMedium, color = if (watched && !focused) TuiColors.Success else secondary, maxLines = 1)
+            }
+            if (progress != null) ProgressLine(progress, Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 6.dp), height = 3.dp, color = TuiColors.Danger, track = Color.Black.copy(alpha = 0.4f))
+        }
+    }
+}
+
 /** Campo de texto para TV: OK abre o teclado do sistema; no foco o fundo clareia e surge um traço ciano embaixo. */
 @Composable
 fun TvTextField(

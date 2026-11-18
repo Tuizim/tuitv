@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import tv.tui.tuitv.ui.components.ColumnPivot
 import tv.tui.tuitv.ui.components.EpisodeCard
+import tv.tui.tuitv.ui.components.EpisodeTile
 import tv.tui.tuitv.ui.components.FocusMemory
 import tv.tui.tuitv.ui.components.ProgressLine
 import tv.tui.tuitv.ui.components.RowPivot
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -74,6 +76,7 @@ import tv.tui.core.SeriesGroup
 import tv.tui.core.collapseSeriesHistory
 import tv.tui.core.continueEpisode
 import tv.tui.core.episodeTitle
+import tv.tui.core.hasEpisodeDetails
 import tv.tui.core.groupSeries
 import tv.tui.core.nextEpisode
 import tv.tui.core.seriesId
@@ -687,6 +690,14 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
     val target = continueTarget(series, byItem)
     if (seasonIndex < 0) seasonIndex = series.seasons.indexOfFirst { s -> s.episodes.any { it.id == target.first.id } }.coerceAtLeast(0)
     val season = series.seasons.getOrNull(seasonIndex) ?: series.seasons.first()
+    // Grade de episódios (listas sem dados por episódio): colunas pela largura do aparelho.
+    val screen = device()
+    val gridColumns = when {
+        screen.compact -> 2
+        screen.tv -> 5
+        else -> 4
+    }
+    val gridGap = if (screen.tv) 16.dp else 10.dp
 
     Box(Modifier.fillMaxSize()) {
     // Mesmo fundo da ficha do filme: a capa da série desfocada.
@@ -725,21 +736,44 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
                 }
             }
         }
-        itemsIndexed(season.episodes, key = { _, e -> e.id }) { index, ep ->
-            val h = byItem[ep.id]
-            val number = ep.series!!.episode
-            // Cartão no estilo Netflix: miniatura, título próprio do episódio (sem o nome da série) e sinopse.
-            EpisodeCard(
-                number = number,
-                title = episodeTitle(ep.name, series.title) ?: if (number > 0) "Episódio $number" else ep.name,
-                image = ep.logo ?: series.logo,
-                onClick = { navigator.play(flat, ep, h?.takeIf { it.resumable() }?.position) },
-                modifier = memory.item(index),
-                duration = ep.duration?.let { Txt.duration(it) },
-                synopsis = ep.description,
-                watched = h?.completed == true,
-                progress = h?.takeIf { it.resumable() }?.fraction(),
-            )
+        // Com miniaturas ou sinopses próprias, cartões no estilo Netflix; sem, uma grade compacta e fácil de percorrer.
+        if (hasEpisodeDetails(season.episodes, series.logo)) {
+            itemsIndexed(season.episodes, key = { _, e -> e.id }) { index, ep ->
+                val h = byItem[ep.id]
+                val number = ep.series!!.episode
+                EpisodeCard(
+                    number = number,
+                    title = episodeTitle(ep.name, series.title) ?: if (number > 0) "Episódio $number" else ep.name,
+                    image = ep.logo ?: series.logo,
+                    onClick = { navigator.play(flat, ep, h?.takeIf { it.resumable() }?.position) },
+                    modifier = memory.item(index),
+                    duration = ep.duration?.let { Txt.duration(it) },
+                    synopsis = ep.description,
+                    watched = h?.completed == true,
+                    progress = h?.takeIf { it.resumable() }?.fraction(),
+                )
+            }
+        } else {
+            val columns = gridColumns
+            val rows = season.episodes.withIndex().chunked(columns)
+            items(rows, key = { row -> "grid:" + row.first().value.id }) { row ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(gridGap)) {
+                    for ((index, ep) in row) {
+                        val h = byItem[ep.id]
+                        EpisodeTile(
+                            number = ep.series!!.episode,
+                            title = episodeTitle(ep.name, series.title),
+                            onClick = { navigator.play(flat, ep, h?.takeIf { it.resumable() }?.position) },
+                            modifier = Modifier.weight(1f).then(memory.item(index)),
+                            duration = ep.duration?.let { Txt.duration(it) },
+                            watched = h?.completed == true,
+                            next = ep.id == target.first.id,
+                            progress = h?.takeIf { it.resumable() }?.fraction(),
+                        )
+                    }
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
         }
     }
     }

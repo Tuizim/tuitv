@@ -4,7 +4,7 @@ import { Check, CheckCheck, Clapperboard, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
-import { continueEpisode, episodeTitle } from '@tuitv/business-rules';
+import { continueEpisode, episodeTitle, hasEpisodeDetails } from '@tuitv/business-rules';
 import type { MediaItem } from '@tuitv/shared-models';
 import { AmbientBackdrop } from '@/components/AmbientBackdrop';
 import { FavoriteButton } from '@/components/cards';
@@ -105,18 +105,34 @@ function SeriesView() {
           </IconButton>
         </div>
 
-        <ul className="flex flex-col gap-1" data-testid="episodes">
-          {season.episodes.map((episode) => (
-            <EpisodeCard
-              key={episode.id}
-              episode={episode}
-              seriesTitle={series.title}
-              fallbackImage={series.logo}
-              entry={historyById.get(episode.id)}
-              onWatched={(watched) => setWatched(episode, watched)}
-            />
-          ))}
-        </ul>
+        {/* Com miniaturas ou sinopses próprias, cartões no estilo Netflix; sem, uma grade compacta e fácil de percorrer. */}
+        {hasEpisodeDetails(season.episodes, series.logo) ? (
+          <ul className="flex flex-col gap-1" data-testid="episodes" data-layout="cards">
+            {season.episodes.map((episode) => (
+              <EpisodeCard
+                key={episode.id}
+                episode={episode}
+                seriesTitle={series.title}
+                fallbackImage={series.logo}
+                entry={historyById.get(episode.id)}
+                onWatched={(watched) => setWatched(episode, watched)}
+              />
+            ))}
+          </ul>
+        ) : (
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" data-testid="episodes" data-layout="grid">
+            {season.episodes.map((episode) => (
+              <EpisodeTile
+                key={episode.id}
+                episode={episode}
+                seriesTitle={series.title}
+                entry={historyById.get(episode.id)}
+                next={episode.id === upNext?.id}
+                onWatched={(watched) => setWatched(episode, watched)}
+              />
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
@@ -185,6 +201,81 @@ function EpisodeCard({
         className={watched ? 'text-success' : ''}
       >
         <Check className="size-5" />
+      </IconButton>
+    </li>
+  );
+}
+
+/**
+ * Bloco da grade de episódios (quando a lista não traz miniatura nem sinopse por episódio): número grande,
+ * título próprio (se houver), duração e o estado — "Próximo"/"Continuar" em destaque, progresso ou assistido.
+ */
+function EpisodeTile({
+  episode,
+  seriesTitle,
+  entry,
+  next,
+  onWatched,
+}: {
+  episode: MediaItem;
+  seriesTitle: string;
+  entry?: { completed: boolean; position: number; duration: number };
+  next: boolean;
+  onWatched: (watched: boolean) => void;
+}) {
+  const t = useT();
+  const number = episode.series?.episode ?? 0;
+  const own = episodeTitle(episode.name, seriesTitle);
+  const label = own ?? (number ? t('Episódio {n}', { n: number }) : episode.name);
+  const watched = !!entry?.completed;
+  const progress = entry && !watched && entry.duration > 0 ? entry.position / entry.duration : 0;
+  const duration = episode.duration ? formatDuration(episode.duration, t) : null;
+  return (
+    <li className="relative">
+      <Link
+        href={itemHref(episode)}
+        aria-label={`${number ? `${number}. ` : ''}${label}`}
+        data-episode={episode.id}
+        className={cx(
+          'group flex h-full min-h-32 flex-col rounded-xl border p-3 transition sm:p-4',
+          next ? 'border-accent bg-accent/12' : 'border-line bg-surface/70 hover:border-accent/70',
+          watched && !next && 'opacity-60',
+        )}
+      >
+        <span className="flex items-start justify-between gap-2">
+          <span className="min-w-0">
+            <span className="block text-[0.65rem] font-semibold tracking-[0.15em] text-muted uppercase">{t('Episódio')}</span>
+            <span className="mt-1 block text-3xl leading-none font-extrabold tabular-nums">{number || '•'}</span>
+          </span>
+          {next && (
+            <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[0.65rem] font-bold tracking-wide text-accent-ink uppercase">
+              {progress > 0 ? t('Continuar') : t('Próximo')}
+            </span>
+          )}
+        </span>
+        {own && <span className="mt-2 line-clamp-2 text-sm leading-snug font-medium">{own}</span>}
+        <span className="mt-auto flex items-center gap-1.5 pt-3 pr-8 text-xs text-muted">
+          {watched ? (
+            <>
+              <Check className="size-3.5 text-success" /> {t('Assistido')}
+            </>
+          ) : (
+            duration
+          )}
+        </span>
+        {progress > 0 && (
+          <span className="absolute inset-x-3 bottom-1.5 h-1 overflow-hidden rounded-full bg-black/40">
+            <span className="block h-full bg-danger" style={{ width: `${Math.min(100, progress * 100)}%` }} />
+          </span>
+        )}
+      </Link>
+      <IconButton
+        label={watched ? t('Marcar como não assistido') : t('Marcar como assistido')}
+        aria-pressed={watched}
+        onClick={() => onWatched(!watched)}
+        className={cx('absolute right-1 bottom-1', watched ? 'text-success' : 'text-muted')}
+      >
+        <Check className="size-4" />
       </IconButton>
     </li>
   );
