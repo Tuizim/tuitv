@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,9 @@ sealed interface Route {
     data object History : Route
     data object Playlists : Route
     data object Settings : Route
+
+    /** Celular e tablet: "Mais" reúne o que não cabe na barra inferior (favoritos, histórico, listas…). */
+    data object More : Route
     data class MovieDetail(val itemId: String) : Route
     data class SeriesDetail(val playlistId: String, val seriesKey: String) : Route
 
@@ -52,6 +56,24 @@ val destinations = listOf(
     Destination(Route.Settings, Txt.SETTINGS, Icons.Filled.Settings),
 )
 
+/** Abas da barra inferior (toque): Início, Ao vivo, Filmes, Séries e Mais. */
+val touchTabs = listOf(
+    Destination(Route.Home, Txt.HOME, Icons.Filled.Home),
+    Destination(Route.Live, Txt.LIVE, TuiIcons.LiveTv),
+    Destination(Route.Movies, Txt.MOVIES, TuiIcons.Movie),
+    Destination(Route.Series, Txt.SERIES, TuiIcons.Series),
+    Destination(Route.More, Txt.MORE, Icons.Filled.Menu),
+)
+
+/** Itens da tela "Mais", na ordem em que aparecem. */
+val moreDestinations = listOf(
+    Destination(Route.Favorites, Txt.FAVORITES, Icons.Filled.Favorite),
+    Destination(Route.History, Txt.HISTORY, TuiIcons.History),
+    Destination(Route.Guide, Txt.GUIDE, TuiIcons.Guide),
+    Destination(Route.Playlists, Txt.PLAYLISTS, TuiIcons.Playlists),
+    Destination(Route.Settings, Txt.SETTINGS, Icons.Filled.Settings),
+)
+
 /** Pilha de navegação simples: destinos principais substituem a pilha; detalhes e player empilham. */
 @Stable
 class Navigator {
@@ -61,14 +83,23 @@ class Navigator {
     /** Destino principal da tela atual (para destacar no menu lateral). */
     val section: Route get() = stack.lastOrNull { r -> destinations.any { it.route == r } } ?: Route.Home
 
+    /** Aba da barra inferior que fica acesa: o que veio de "Mais" acende "Mais". */
+    val tab: Route get() = stack.lastOrNull { r -> touchTabs.any { it.route == r } || moreDestinations.any { it.route == r } }
+        ?.let { r -> if (touchTabs.any { it.route == r }) r else Route.More } ?: Route.Home
+
     fun open(route: Route) {
-        if (destinations.any { it.route == route }) {
+        if (destinations.any { it.route == route } || route == Route.More) {
             stack.clear()
             stack.add(Route.Home)
             if (route != Route.Home) stack.add(route)
         } else {
             stack.add(route)
         }
+    }
+
+    /** Empilha sem limpar a pilha (ex.: de "Mais" para Favoritos: Voltar retorna a "Mais"). */
+    fun push(route: Route) {
+        stack.add(route)
     }
 
     fun replace(route: Route) {

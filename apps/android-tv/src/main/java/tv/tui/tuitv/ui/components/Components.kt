@@ -72,13 +72,26 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import coil3.compose.SubcomposeAsyncImage
 import kotlinx.coroutines.delay
+import tv.tui.tuitv.ui.device
 import tv.tui.tuitv.ui.theme.TuiColors
 
 private val CardShape = RoundedCornerShape(10.dp)
 private val RowShape = RoundedCornerShape(10.dp)
 private val PillShape = RoundedCornerShape(50)
+
+/**
+ * Botões esticados (largura da tela no celular): o conteúdo fica centralizado, como na Netflix.
+ * Quem estica os botões declara isso com [FillButtons].
+ */
+val LocalFillButtons = androidx.compose.runtime.compositionLocalOf { false }
+
+@Composable
+fun FillButtons(content: @Composable () -> Unit) =
+    androidx.compose.runtime.CompositionLocalProvider(LocalFillButtons provides true, content = content)
 
 /** Altura única de todos os botões do aplicativo. */
 val ButtonHeight = 48.dp
@@ -104,11 +117,13 @@ fun TuiSurface(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val focused by interactionSource.collectIsFocusedAsState()
-    val dim by animateFloatAsState(if (focused || !dimUnfocused) 0f else 0.28f, tween(180), label = "dim")
+    // No toque não há foco: nada fica escurecido esperando o controle.
+    val dims = dimUnfocused && device().tv
+    val dim by animateFloatAsState(if (focused || !dims) 0f else 0.28f, tween(180), label = "dim")
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier,
+        modifier = modifier.tapToClick(interactionSource, onLongClick = onLongClick, onClick = onClick),
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
@@ -121,7 +136,7 @@ fun TuiSurface(
         ),
         border = ClickableSurfaceDefaults.border(border = Border.None, focusedBorder = Border.None, pressedBorder = Border.None),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = FocusGlow),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = focusedScale),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = focusedScale, pressedScale = 0.96f),
     ) {
         content()
         if (dim > 0f) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dim)))
@@ -142,10 +157,12 @@ fun ActionButton(
     primary: Boolean = false,
     enabled: Boolean = true,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Button(
         onClick = onClick,
-        modifier = modifier.height(ButtonHeight).widthIn(min = ButtonMinWidth),
+        modifier = modifier.height(ButtonHeight).widthIn(min = ButtonMinWidth).tapToClick(interaction, enabled, onClick = onClick),
         enabled = enabled,
+        interactionSource = interaction,
         shape = ButtonDefaults.shape(PillShape),
         colors = ButtonDefaults.colors(
             containerColor = if (primary) TuiColors.Cyan else TuiColors.White.copy(alpha = 0.12f),
@@ -164,11 +181,12 @@ fun ActionButton(
             disabledBorder = Border.None,
             focusedDisabledBorder = Border.None,
         ),
-        scale = ButtonDefaults.scale(focusedScale = 1.06f, focusedDisabledScale = 1.02f),
+        scale = ButtonDefaults.scale(focusedScale = 1.06f, focusedDisabledScale = 1.02f, pressedScale = 0.96f),
         glow = ButtonDefaults.glow(focusedGlow = Glow(TuiColors.White.copy(alpha = 0.25f), 10.dp)),
         contentPadding = PaddingValues(horizontal = 22.dp),
     ) {
-        Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+        val fill = LocalFillButtons.current
+        Row(Modifier.fillMaxHeight().then(if (fill) Modifier.weight(1f) else Modifier), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             if (icon != null) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
@@ -256,8 +274,10 @@ private fun MediaCard(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    val titleColor by animateColorAsState(if (focused) TuiColors.White else TuiColors.Muted, tween(180), label = "title")
-    Column(modifier) {
+    val tv = device().tv
+    val titleColor by animateColorAsState(if (focused || !tv) TuiColors.White else TuiColors.Muted, tween(180), label = "title")
+    // Toque: o título embaixo da capa também abre o item (a capa encolhe junto, pelo mesmo estado).
+    Column(if (tv) modifier else modifier.tapToClick(interaction, onLongClick = onLongClick, onClick = onClick)) {
         TuiSurface(onClick = onClick, onLongClick = onLongClick, interactionSource = interaction, modifier = Modifier.fillMaxWidth().height(imageHeight)) {
             image()
             if (progress != null) ProgressLine(progress, Modifier.align(Alignment.BottomCenter), color = TuiColors.Danger)
@@ -268,7 +288,7 @@ private fun MediaCard(
             color = titleColor,
             maxLines = titleLines,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 10.dp),
+            modifier = Modifier.padding(top = if (tv) 10.dp else 6.dp),
         )
         if (caption != null) Muted(caption, maxLines = 1)
     }
@@ -277,15 +297,17 @@ private fun MediaCard(
 /** Cartão de canal (logotipo + nome) para fileiras horizontais. */
 @Composable
 fun ChannelCard(name: String, logo: String?, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, caption: String? = null, progress: Float? = null) {
-    MediaCard(name, onClick, modifier.width(208.dp), 117.dp, onLongClick, caption, progress, titleLines = 1) {
-        RemoteImage(logo, name, Modifier.fillMaxSize().padding(16.dp))
+    val compact = device().compact
+    MediaCard(name, onClick, modifier.width(if (compact) 160.dp else 208.dp), if (compact) 90.dp else 117.dp, onLongClick, caption, progress, titleLines = 1) {
+        RemoteImage(logo, name, Modifier.fillMaxSize().padding(if (compact) 12.dp else 16.dp))
     }
 }
 
 /** Cartão de capa 2:3 para filmes e séries; [fill] ocupa a largura da célula (grades). */
 @Composable
 fun PosterCard(title: String, image: String?, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, caption: String? = null, progress: Float? = null, fill: Boolean = false) {
-    BoxWithConstraints(if (fill) modifier.fillMaxWidth() else modifier.width(144.dp)) {
+    val width = if (device().compact) 112.dp else 144.dp
+    BoxWithConstraints(if (fill) modifier.fillMaxWidth() else modifier.width(width)) {
         MediaCard(title, onClick, Modifier.fillMaxWidth(), maxWidth * 1.5f, onLongClick, caption, progress, titleLines = 1) {
             RemoteImage(image, title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
@@ -316,7 +338,7 @@ fun ListRow(
         onClick = onClick,
         onLongClick = onLongClick,
         interactionSource = interaction,
-        modifier = modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) onFocus?.invoke() },
+        modifier = modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) onFocus?.invoke() }.tapToClick(interaction, onLongClick = onLongClick, onClick = onClick),
         shape = ClickableSurfaceDefaults.shape(RowShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) TuiColors.NavyRaised else TuiColors.NavyRaised.copy(alpha = 0.45f),
@@ -327,7 +349,7 @@ fun ListRow(
             pressedContentColor = TuiColors.Navy,
         ),
         border = ClickableSurfaceDefaults.border(border = Border.None, focusedBorder = Border.None, pressedBorder = Border.None),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f, pressedScale = 0.98f),
     ) {
         Row(Modifier.heightIn(min = 52.dp).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (selected && !focused) {
@@ -418,12 +440,13 @@ fun TvTextField(
 fun TuiDialog(title: String, onDismiss: () -> Unit, width: Dp = 560.dp, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            modifier = Modifier.width(width),
+            // Na TV, a largura pedida; no celular, quase a tela inteira (sem passar da pedida).
+            modifier = Modifier.widthIn(max = width).fillMaxWidth(0.94f),
             shape = RoundedCornerShape(16.dp),
             colors = SurfaceDefaults.colors(containerColor = TuiColors.Navy, contentColor = TuiColors.White),
         ) {
             // Rolável: na TV (540dp de altura) formulários maiores não cabem inteiros; o foco rola até o campo.
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(if (device().compact) 20.dp else 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall)
                 content()
             }
@@ -436,7 +459,7 @@ fun ConfirmDialog(title: String, message: String, confirm: String, onConfirm: ()
     val focus = remember { FocusRequester() }
     TuiDialog(title, onDismiss) {
         Text(message, style = MaterialTheme.typography.bodyLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Cancelar", onDismiss, Modifier.focusRequester(focus))
             ActionButton(confirm, onConfirm, primary = true)
         }
@@ -444,9 +467,14 @@ fun ConfirmDialog(title: String, message: String, confirm: String, onConfirm: ()
     RequestFocus(focus)
 }
 
-/** Pede foco assim que o elemento é composto (ignora se ele ainda não estiver na tela). */
+/**
+ * Pede foco assim que o elemento é composto (ignora se ele ainda não estiver na tela).
+ * Só na TV: no toque, foco automático acenderia um cartão ou abriria o teclado sem o usuário pedir.
+ * [always] vale também no toque (ex.: o player, que recebe as teclas de um teclado/controle Bluetooth).
+ */
 @Composable
-fun RequestFocus(requester: FocusRequester, key: Any? = Unit, onFocused: () -> Unit = {}) {
+fun RequestFocus(requester: FocusRequester, key: Any? = Unit, always: Boolean = false, onFocused: () -> Unit = {}) {
+    if (!always && !device().tv) return
     LaunchedEffect(key) {
         // Até ~2 s: listas grandes podem demorar a carregar antes de o item existir na tela.
         repeat(36) {
@@ -463,4 +491,67 @@ fun RequestFocus(requester: FocusRequester, key: Any? = Unit, onFocused: () -> U
 @Composable
 fun ErrorText(text: String, modifier: Modifier = Modifier) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = TuiColors.Danger, modifier = modifier)
+}
+
+/** Grupo de botões: na TV cabe numa linha; em telas estreitas os botões descem para a linha de baixo. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ButtonRow(modifier: Modifier = Modifier, horizontalSpacing: Dp = 12.dp, content: @Composable () -> Unit) {
+    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(horizontalSpacing), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
+}
+
+/** Pílula de categoria (celular): a escolhida fica branca; toque escolhe. */
+@Composable
+fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    Surface(
+        onClick = onClick,
+        interactionSource = interaction,
+        modifier = modifier.height(36.dp).tapToClick(interaction, onClick = onClick),
+        shape = ClickableSurfaceDefaults.shape(PillShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) TuiColors.White else Color.Transparent,
+            contentColor = if (selected) TuiColors.Navy else TuiColors.White,
+            focusedContainerColor = TuiColors.White,
+            focusedContentColor = TuiColors.Navy,
+            pressedContainerColor = TuiColors.White.copy(alpha = 0.85f),
+            pressedContentColor = TuiColors.Navy,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = if (selected) Border.None else Border(androidx.compose.foundation.BorderStroke(1.dp, TuiColors.Muted.copy(alpha = 0.6f)), shape = PillShape),
+            focusedBorder = Border.None,
+            pressedBorder = Border.None,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f, pressedScale = 0.96f),
+    ) {
+        Box(Modifier.fillMaxHeight().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Botão redondo só com ícone, para cabeçalhos e barras de toque. */
+@Composable
+fun IconAction(icon: ImageVector, description: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = TuiColors.White) {
+    val interaction = remember { MutableInteractionSource() }
+    Surface(
+        onClick = onClick,
+        interactionSource = interaction,
+        modifier = modifier.size(44.dp).tapToClick(interaction, onClick = onClick),
+        shape = ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = tint,
+            focusedContainerColor = TuiColors.White,
+            focusedContentColor = TuiColors.Navy,
+            pressedContainerColor = TuiColors.White.copy(alpha = 0.16f),
+            pressedContentColor = tint,
+        ),
+        border = ClickableSurfaceDefaults.border(border = Border.None, focusedBorder = Border.None, pressedBorder = Border.None),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f, pressedScale = 0.92f),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = description, modifier = Modifier.size(24.dp))
+        }
+    }
 }

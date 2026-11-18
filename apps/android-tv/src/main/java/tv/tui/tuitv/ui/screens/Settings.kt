@@ -62,6 +62,8 @@ import tv.tui.tuitv.ui.library
 import tv.tui.tuitv.ui.toaster
 import tv.tui.tuitv.ui.tuiApp
 import tv.tui.tuitv.ui.theme.TuiColors
+import tv.tui.tuitv.ui.device
+import tv.tui.tuitv.ui.components.ButtonRow
 
 private fun yesNo(value: Boolean) = if (value) "Sim" else "Não"
 
@@ -111,8 +113,10 @@ fun SettingsScreen() {
         if (p.enabled && !unlocked && p.pinHash != null) pinPrompt = action else perform(action)
     }
 
-    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(6.dp, 0.dp, 6.dp, 48.dp)) {
-        item { ScreenTitle(Txt.SETTINGS, subtitle = "Pressione OK para alterar cada opção.") }
+    val device = device()
+    val side = if (device.tv) 6.dp else device.gutter
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(side, 0.dp, side, 48.dp)) {
+        item { ScreenTitle(Txt.SETTINGS, subtitle = if (device.tv) "Pressione OK para alterar cada opção." else "Toque em uma opção para alterá-la.") }
 
         item { SectionTitle("Reprodução") }
         item {
@@ -165,7 +169,7 @@ fun SettingsScreen() {
         item { SectionTitle("Sobre") }
         item {
             Column(Modifier.heightIn(min = 40.dp)) {
-                Text("TuiTV ${BuildConfig.VERSION_NAME} para Android TV e Fire TV")
+                Text("TuiTV ${BuildConfig.VERSION_NAME} para Android, Android TV e Fire TV")
                 Muted("Sem conta, sem cadastro e sem servidor próprio: listas, favoritos, histórico e preferências ficam apenas neste aparelho. O TuiTV não fornece conteúdo; use somente fontes autorizadas.")
             }
         }
@@ -222,7 +226,7 @@ fun PinPromptDialog(onDismiss: () -> Unit, onUnlocked: () -> Unit) {
         TvTextField(pin, { pin = it.filter(Char::isDigit).take(8) }, "PIN (4 a 8 dígitos)", password = true, keyboardType = KeyboardType.NumberPassword, focusRequester = focus, onDone = ::submit)
         error?.let { ErrorText(it) }
         Muted("Esqueceu o PIN? Ele não pode ser recuperado: limpe os dados do aplicativo nas configurações do aparelho e restaure um backup.")
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Cancelar", onDismiss)
             ActionButton("Desbloquear", ::submit, primary = true, enabled = !busy)
         }
@@ -249,7 +253,7 @@ private fun PinSetupDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
         TvTextField(confirm, { confirm = it.filter(Char::isDigit).take(8) }, "Repita o PIN", password = true, keyboardType = KeyboardType.NumberPassword, onDone = ::submit)
         error?.let { ErrorText(it) }
         Muted("O PIN fica apenas neste aparelho e nunca é incluído no backup.")
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Cancelar", onDismiss)
             ActionButton("Salvar", ::submit, primary = true)
         }
@@ -269,7 +273,7 @@ private fun LockedGroupsDialog(onDismiss: () -> Unit) {
     }.collectAsStateWithLifecycle(null)
     val locked = settings.parental.lockedGroups.toSet()
     TuiDialog("Categorias bloqueadas", onDismiss, width = 640.dp) {
-        Muted("OK bloqueia ou libera a categoria em todas as listas.")
+        Muted(if (device().tv) "OK bloqueia ou libera a categoria em todas as listas." else "Toque para bloquear ou liberar a categoria em todas as listas.")
         val list = groups
         if (list == null) Muted(Txt.LOADING)
         else LazyColumn(Modifier.heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -367,7 +371,7 @@ private fun ExportDialog(onDismiss: () -> Unit) {
         if (hasCredentials && password.isEmpty()) Text("Atenção: suas listas têm usuário e senha no endereço. Sem senha, o arquivo os guarda em texto aberto.", color = TuiColors.Warning)
         Muted("Com senha, o arquivo é cifrado (AES-256-GCM). O PIN parental nunca é exportado.")
         error?.let { ErrorText(it) }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Cancelar", onDismiss, enabled = !busy)
             ActionButton(if (busy) Txt.LOADING else "Exportar", ::export, primary = true, enabled = !busy)
         }
@@ -420,14 +424,14 @@ fun RestoreDialog(onDismiss: () -> Unit) {
 
     TuiDialog(Txt.RESTORE, { if (!busy) onDismiss() }, width = 680.dp) {
         TvTextField(password, { password = it }, "Senha do backup (se houver)", password = true, imeAction = ImeAction.Next, focusRequester = focus)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Escolher arquivo", pick, enabled = !busy)
         }
         TvTextField(url, { url = it }, "Ou endereço do arquivo de backup", placeholder = "https://…", keyboardType = KeyboardType.Uri, onDone = ::fromUrl)
         Muted("Os dados são mesclados aos atuais. O controle parental deste aparelho é mantido.")
         if (busy) Text(Txt.LOADING, color = TuiColors.Cyan)
         error?.let { ErrorText(it) }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Cancelar", onDismiss, enabled = !busy)
             ActionButton("Restaurar do endereço", ::fromUrl, primary = true, enabled = !busy && url.isNotBlank())
         }

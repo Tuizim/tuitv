@@ -55,6 +55,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,6 +113,19 @@ import tv.tui.tuitv.ui.navigator
 import tv.tui.tuitv.ui.rememberFavoriteToggle
 import tv.tui.tuitv.ui.theme.TuiColors
 import tv.tui.tuitv.ui.tuiApp
+import tv.tui.tuitv.ui.activity
+import tv.tui.tuitv.ui.device
+import tv.tui.tuitv.ui.components.IconAction
+import tv.tui.tuitv.ui.components.tapToClick
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 sealed interface Phase {
     data object Loading : Phase
@@ -427,13 +441,43 @@ fun PlayerScreen(route: Route.Player) {
 
     val focus = remember { FocusRequester() }
     val controlsFocus = remember { FocusRequester() }
+    val touch = device().touch
     BackHandler {
         // Voltar primeiro esconde os controles (ou desfaz a busca); só então sai do player.
+        // No toque não há foco nos botões: Voltar sai direto, como no celular.
         when {
             scrubbing -> { scrubTo = null; scrubSteps = 0 }
+            touch -> navigator.back()
             !rootFocused -> { focus.requestFocus(); overlayUntil = 0 }
             else -> navigator.back()
         }
+    }
+    // Celular/tablet: tela cheia de verdade (as barras do sistema voltam com um deslize).
+    val view = LocalView.current
+    if (touch) {
+        DisposableEffect(Unit) {
+            val window = context.activity()?.window
+            val bars = window?.let { WindowCompat.getInsetsController(it, view) }
+            bars?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            bars?.hide(WindowInsetsCompat.Type.systemBars())
+            onDispose { bars?.show(WindowInsetsCompat.Type.systemBars()) }
+        }
+    }
+    /** Toque na imagem: mostra os controles ou, se estiverem à vista, esconde. */
+    fun toggleOverlay() {
+        if (overlay) overlayUntil = 0 else showOverlay()
+    }
+    fun seekTouch(fraction: Float, done: Boolean) {
+        if (live || duration <= 0) return
+        scrubTo = (fraction.coerceIn(0f, 1f) * duration).toLong()
+        showOverlay()
+        if (done) commitScrub()
+    }
+    // Os gestos vivem mais que uma composição: sempre chamam a versão atual das ações.
+    val onVideoTap by rememberUpdatedState(::toggleOverlay)
+    val onVideoDoubleTap by rememberUpdatedState { direction: Int ->
+        scrubSteps = 0
+        scrub(direction)
     }
     // Controles escondidos não podem ficar com o foco.
     LaunchedEffect(overlay) { if (!overlay && !rootFocused) focus.requestFocus() }
@@ -445,6 +489,15 @@ fun PlayerScreen(route: Route.Player) {
             .onFocusChanged { rootFocused = it.isFocused }
             .focusRequester(focus)
             .focusable()
+            .let { m ->
+                if (!touch) m else m.pointerInput(live) {
+                    // Toque mostra/esconde os controles; dois toques à esquerda/direita voltam/avançam 10 s.
+                    detectTapGestures(
+                        onTap = { onVideoTap() },
+                        onDoubleTap = { o -> if (!live) onVideoDoubleTap(if (o.x < size.width / 2) -1 else +1) },
+                    )
+                }
+            }
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 val code = event.key.nativeKeyCode
@@ -509,27 +562,44 @@ fun PlayerScreen(route: Route.Player) {
             modifier = Modifier.fillMaxSize(),
         )
 
-        StatusBadge(controller.phase, Modifier.align(Alignment.TopEnd).padding(32.dp))
+        StatusBadge(controller.phase, Modifier.align(Alignment.TopEnd).padding(if (touch) 20.dp else 32.dp))
         if (digits.isNotEmpty()) {
             Text(digits, style = MaterialTheme.typography.displayMedium, color = TuiColors.White, modifier = Modifier.align(Alignment.TopStart).padding(40.dp))
         }
 
         val showControls = overlay && controller.phase !is Phase.Error
         AnimatedVisibility(showControls, Modifier.align(Alignment.TopCenter), enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
-            TopBar(item, index, queue.size, live)
+            TopBar(item, index, queue.size, live, onBack = if (touch) ({ navigator.back() }) else null, onOptions = if (touch) ({ options = true }) else null)
+        }
+        // Toque: controles grandes no centro da imagem, como no app da Netflix no celular.
+        if (touch) {
+            AnimatedVisibility(showControls, Modifier.align(Alignment.Center), enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
+                CenterControls(
+                    live = live,
+                    paused = controller.phase == Phase.Paused,
+                    canChange = queue.size > 1,
+                    onPlayPause = ::togglePause,
+                    onBack10 = { scrubSteps = 0; scrub(-1) },
+                    onForward10 = { scrubSteps = 0; scrub(+1) },
+                    onPrevious = { change(-1) },
+                    onNext = { change(+1) },
+                )
+            }
         }
         AnimatedVisibility(showControls, Modifier.align(Alignment.BottomCenter), enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
             if (live) {
-                LiveBar(item, now)
+                LiveBar(item, now, touch)
             } else {
                 VodBar(
                     phase = controller.phase,
                     position = scrubTo ?: position,
                     duration = duration,
                     scrubbing = scrubbing,
-                    barFocused = rootFocused,
+                    barFocused = rootFocused && !touch,
                     next = next,
                     controlsFocus = controlsFocus,
+                    touch = touch,
+                    onSeek = ::seekTouch,
                     onPlayPause = ::togglePause,
                     onBack10 = { scrubSteps = 0; scrub(-1) },
                     onForward10 = { scrubSteps = 0; scrub(+1) },
@@ -544,12 +614,13 @@ fun PlayerScreen(route: Route.Player) {
         }
         // Fim próximo: oferta do próximo episódio, como na Netflix.
         if (next != null && duration > 0 && duration - position in 1..NEXT_OFFER_MS && !showControls) {
-            NextEpisodeCard(next, Modifier.align(Alignment.BottomEnd).padding(48.dp))
+            NextEpisodeCard(next, touch, ::playNext, Modifier.align(Alignment.BottomEnd).padding(if (touch) 20.dp else 48.dp))
         }
 
         (controller.phase as? Phase.Error)?.let { ErrorPanel(it.message, item, live, { controller.reload() }, { navigator.back() }, Modifier.align(Alignment.Center)) }
     }
-    RequestFocus(focus, options)
+    // Também no toque: a raiz recebe as teclas de um teclado ou controle Bluetooth.
+    RequestFocus(focus, options, always = true)
 
     if (options) OptionsDialog(controller.player, item) { options = false }
 }
@@ -591,14 +662,19 @@ private fun StatusBadge(phase: Phase, modifier: Modifier) {
 
 /** Faixa superior: o que está passando. */
 @Composable
-private fun TopBar(item: MediaItem, index: Int, total: Int, live: Boolean) {
+private fun TopBar(item: MediaItem, index: Int, total: Int, live: Boolean, onBack: (() -> Unit)? = null, onOptions: (() -> Unit)? = null) {
+    val touch = onBack != null
     Row(
         Modifier
             .fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)))
-            .padding(start = 56.dp, end = 56.dp, top = 36.dp, bottom = 56.dp),
+            .padding(start = if (touch) 12.dp else 56.dp, end = if (touch) 12.dp else 56.dp, top = if (touch) 12.dp else 36.dp, bottom = if (touch) 32.dp else 56.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (onBack != null) {
+            IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Sair do player", onBack)
+            Spacer(Modifier.width(8.dp))
+        }
         if (live) {
             RemoteImage(item.logo, item.name, Modifier.size(width = 96.dp, height = 56.dp))
             Spacer(Modifier.width(20.dp))
@@ -614,17 +690,44 @@ private fun TopBar(item: MediaItem, index: Int, total: Int, live: Boolean) {
                 Text(Txt.episodeLabel(it.season, it.episode) + "  " + item.name, style = MaterialTheme.typography.titleMedium, color = TuiColors.White.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+        if (onOptions != null) IconAction(TuiIcons.Subtitles, "Áudio e legendas", onOptions)
+    }
+}
+
+/** Controles centrais no toque: ±10 s e reproduzir/pausar (filmes) ou canal anterior/seguinte (ao vivo). */
+@Composable
+private fun CenterControls(
+    live: Boolean,
+    paused: Boolean,
+    canChange: Boolean,
+    onPlayPause: () -> Unit,
+    onBack10: () -> Unit,
+    onForward10: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(40.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (live) {
+            if (canChange) {
+                PlayerButton(TuiIcons.SkipPrevious, "Canal anterior", onPrevious, size = 64.dp)
+                PlayerButton(TuiIcons.SkipNext, "Próximo canal", onNext, size = 64.dp)
+            }
+        } else {
+            PlayerButton(TuiIcons.Replay10, "Voltar 10 s", onBack10, size = 64.dp)
+            PlayerButton(if (paused) Icons.Filled.PlayArrow else TuiIcons.Pause, if (paused) "Assistir" else "Pausar", onPlayPause, size = 84.dp)
+            PlayerButton(TuiIcons.Forward10, "Avançar 10 s", onForward10, size = 64.dp)
+        }
     }
 }
 
 private val BottomGradient = Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)))
 
 @Composable
-private fun LiveBar(item: MediaItem, now: Long) {
+private fun LiveBar(item: MediaItem, now: Long, touch: Boolean) {
     val library = library()
     val epg by produceState<NowNext<Programme>?>(null, item.id, now / 60_000) { value = library.nowNext(item) }
     Column(
-        Modifier.fillMaxWidth().background(BottomGradient).padding(start = 56.dp, end = 56.dp, top = 72.dp, bottom = 40.dp),
+        Modifier.fillMaxWidth().background(BottomGradient).padding(start = if (touch) 20.dp else 56.dp, end = if (touch) 20.dp else 56.dp, top = if (touch) 40.dp else 72.dp, bottom = if (touch) 20.dp else 40.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         val current = epg?.current
@@ -639,7 +742,7 @@ private fun LiveBar(item: MediaItem, now: Long) {
         } else {
             Muted(item.group ?: Txt.LIVE)
         }
-        Muted("▲▼ trocar canal · números: ir ao canal · ☰ opções · Voltar sai", maxLines = 1)
+        if (!touch) Muted("▲▼ trocar canal · números: ir ao canal · ☰ opções · Voltar sai", maxLines = 1)
     }
 }
 
@@ -653,6 +756,8 @@ private fun VodBar(
     barFocused: Boolean,
     next: MediaItem?,
     controlsFocus: FocusRequester,
+    touch: Boolean,
+    onSeek: (Float, Boolean) -> Unit,
     onPlayPause: () -> Unit,
     onBack10: () -> Unit,
     onForward10: () -> Unit,
@@ -660,11 +765,19 @@ private fun VodBar(
     onNext: () -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().background(BottomGradient).padding(start = 56.dp, end = 56.dp, top = 96.dp, bottom = 36.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        Modifier.fillMaxWidth().background(BottomGradient).padding(start = if (touch) 20.dp else 56.dp, end = if (touch) 20.dp else 56.dp, top = if (touch) 48.dp else 96.dp, bottom = if (touch) 16.dp else 36.dp),
+        verticalArrangement = Arrangement.spacedBy(if (touch) 10.dp else 18.dp),
     ) {
         if (duration > 0) {
-            SeekBar(position, duration, scrubbing, barFocused)
+            SeekBar(position, duration, scrubbing, barFocused || touch, if (touch) onSeek else null)
+        }
+        if (touch) {
+            // Play e ±10 s ficam no centro da tela; embaixo, só o que é secundário.
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                PlayerButton(TuiIcons.Subtitles, "Áudio e legendas", onOptions, label = true)
+                if (next != null) PlayerButton(TuiIcons.SkipNext, "Próximo episódio", onNext, label = true)
+            }
+            return@Column
         }
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             val paused = phase == Phase.Paused
@@ -680,7 +793,7 @@ private fun VodBar(
 }
 
 @Composable
-private fun SeekBar(position: Long, duration: Long, scrubbing: Boolean, focused: Boolean) {
+private fun SeekBar(position: Long, duration: Long, scrubbing: Boolean, focused: Boolean, onSeek: ((Float, Boolean) -> Unit)? = null) {
     val fraction = (position.toFloat() / duration).coerceIn(0f, 1f)
     val height by animateDpAsState(if (focused) 6.dp else 4.dp, tween(150), label = "bar")
     val thumb by animateDpAsState(if (focused) 20.dp else 0.dp, tween(150), label = "thumb")
@@ -698,7 +811,25 @@ private fun SeekBar(position: Long, duration: Long, scrubbing: Boolean, focused:
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            BoxWithConstraints(Modifier.weight(1f).height(24.dp), contentAlignment = Alignment.CenterStart) {
+            // Toque: tocar leva ao ponto; arrastar busca e só aplica ao soltar.
+            val seek by rememberUpdatedState(onSeek)
+            val seekGestures = if (onSeek == null) Modifier else Modifier
+                .pointerInput(Unit) {
+                    detectTapGestures { o -> seek?.invoke(o.x / size.width, true) }
+                }
+                .pointerInput(Unit) {
+                    var last = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { o -> last = o.x / size.width; seek?.invoke(last, false) },
+                        onDragEnd = { seek?.invoke(last, true) },
+                        onDragCancel = { seek?.invoke(last, true) },
+                    ) { change, _ ->
+                        change.consume()
+                        last = change.position.x / size.width
+                        seek?.invoke(last, false)
+                    }
+                }
+            BoxWithConstraints(Modifier.weight(1f).height(if (onSeek != null) 36.dp else 24.dp).then(seekGestures), contentAlignment = Alignment.CenterStart) {
                 Box(Modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height)).background(TuiColors.White.copy(alpha = 0.3f)))
                 Box(Modifier.fillMaxWidth(fraction).height(height).clip(RoundedCornerShape(height)).background(TuiColors.Danger))
                 if (thumb > 0.dp) {
@@ -714,10 +845,12 @@ private fun SeekBar(position: Long, duration: Long, scrubbing: Boolean, focused:
 
 /** Botão redondo do player (só ícone) ou em pílula com rótulo; branco no foco, sem borda. */
 @Composable
-private fun PlayerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit, modifier: Modifier = Modifier, label: Boolean = false) {
+private fun PlayerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit, modifier: Modifier = Modifier, label: Boolean = false, size: androidx.compose.ui.unit.Dp = ButtonHeight) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Button(
         onClick = onClick,
-        modifier = modifier.height(ButtonHeight).let { if (label) it else it.width(ButtonHeight) },
+        interactionSource = interaction,
+        modifier = modifier.height(size).let { if (label) it else it.width(size) }.tapToClick(interaction, onClick = onClick),
         shape = ButtonDefaults.shape(CircleShape),
         colors = ButtonDefaults.colors(
             containerColor = TuiColors.White.copy(alpha = 0.14f),
@@ -726,11 +859,11 @@ private fun PlayerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
             focusedContentColor = Color.Black,
         ),
         border = ButtonDefaults.border(focusedBorder = Border.None),
-        scale = ButtonDefaults.scale(focusedScale = 1.1f),
+        scale = ButtonDefaults.scale(focusedScale = 1.1f, pressedScale = 0.92f),
         contentPadding = if (label) PaddingValues(start = 16.dp, end = 20.dp) else PaddingValues(0.dp),
     ) {
         Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            Icon(icon, contentDescription = description, modifier = Modifier.size(26.dp))
+            Icon(icon, contentDescription = description, modifier = Modifier.size(if (size > ButtonHeight) size * 0.5f else 26.dp))
             if (label) {
                 Spacer(Modifier.width(8.dp))
                 Text(description, style = MaterialTheme.typography.titleSmall, maxLines = 1)
@@ -740,14 +873,17 @@ private fun PlayerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 }
 
 @Composable
-private fun NextEpisodeCard(next: MediaItem, modifier: Modifier) {
+private fun NextEpisodeCard(next: MediaItem, touch: Boolean, onPlay: () -> Unit, modifier: Modifier) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Column(
-        modifier.width(360.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.75f)).padding(20.dp),
+        modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.75f))
+            .let { if (touch) it.tapToClick(interaction, onClick = onPlay) else it }
+            .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Muted("A seguir")
         next.series?.let { Text(Txt.episodeLabel(it.season, it.episode) + "  " + next.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-        Muted("Aperte ▶▶| ou ▼ e escolha “Próximo episódio”.", maxLines = 2)
+        Muted(if (touch) "Toque para assistir agora." else "Aperte ▶▶| ou ▼ e escolha “Próximo episódio”.", maxLines = 2)
     }
 }
 
@@ -755,14 +891,14 @@ private fun NextEpisodeCard(next: MediaItem, modifier: Modifier) {
 private fun ErrorPanel(message: String, item: MediaItem, live: Boolean, onRetry: () -> Unit, onBack: () -> Unit, modifier: Modifier) {
     val focus = remember { FocusRequester() }
     Column(
-        modifier.width(640.dp).clip(RoundedCornerShape(16.dp)).background(TuiColors.Navy.copy(alpha = 0.95f)).padding(32.dp),
+        modifier.widthIn(max = 640.dp).fillMaxWidth(0.92f).clip(RoundedCornerShape(16.dp)).background(TuiColors.Navy.copy(alpha = 0.95f)).padding(if (device().compact || device().phone) 20.dp else 32.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text("Não foi possível reproduzir", style = MaterialTheme.typography.headlineSmall)
         Text(item.name, style = MaterialTheme.typography.titleMedium, color = TuiColors.Muted)
         Text(message, style = MaterialTheme.typography.bodyLarge)
-        if (live) Muted("Use ▲▼ para ir a outro canal.")
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (live) Muted(if (device().tv) "Use ▲▼ para ir a outro canal." else "Volte e escolha outro canal.")
+        tv.tui.tuitv.ui.components.ButtonRow {
             ActionButton("Tentar novamente", onRetry, Modifier.focusRequester(focus), primary = true)
             ActionButton("Voltar", onBack)
         }

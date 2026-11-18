@@ -65,6 +65,14 @@ import tv.tui.tuitv.ui.library
 import tv.tui.tuitv.ui.navigator
 import tv.tui.tuitv.ui.theme.TuiColors
 import tv.tui.tuitv.ui.toaster
+import tv.tui.tuitv.ui.TuiIcons
+import tv.tui.tuitv.ui.device
+import tv.tui.tuitv.ui.components.ButtonRow
+import tv.tui.tuitv.ui.components.FillButtons
+import tv.tui.tuitv.ui.components.IconAction
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 /** Seletor de documentos do sistema. Aparelhos sem seletor (como o Fire TV) recebem um aviso. */
 @Composable
@@ -115,17 +123,34 @@ private fun PlaylistSourceFields(
         TvTextField(url, onUrl, "Link da lista (M3U/M3U8)", placeholder = "http://…", keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next, focusRequester = focus)
     } else {
         TvTextField(host, onHost, "Host (servidor)", placeholder = "http://servidor.com:8080", keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next, focusRequester = focus)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
-            TvTextField(user, onUser, "Usuário", Modifier.weight(1f), imeAction = ImeAction.Next)
-            TvTextField(pass, onPass, "Senha", Modifier.weight(1f), password = !showPass, keyboardType = KeyboardType.Password, onDone = onDone)
-            ActionButton(if (showPass) "Ocultar" else "Mostrar", { showPass = !showPass })
+        if (device().compact) {
+            // Celular: um campo por linha; o botão de mostrar a senha fica ao lado dela.
+            TvTextField(user, onUser, "Usuário", imeAction = ImeAction.Next)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                TvTextField(pass, onPass, "Senha", Modifier.weight(1f), password = !showPass, keyboardType = KeyboardType.Password, onDone = onDone)
+                IconAction(if (showPass) TuiIcons.VisibilityOff else TuiIcons.Visibility, if (showPass) "Ocultar senha" else "Mostrar senha", { showPass = !showPass }, Modifier.padding(bottom = 2.dp))
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
+                TvTextField(user, onUser, "Usuário", Modifier.weight(1f), imeAction = ImeAction.Next)
+                TvTextField(pass, onPass, "Senha", Modifier.weight(1f), password = !showPass, keyboardType = KeyboardType.Password, onDone = onDone)
+                ActionButton(if (showPass) "Ocultar" else "Mostrar", { showPass = !showPass })
+            }
         }
     }
 }
 
 @Composable
 private fun ModeSelector(mode: PlaylistMode, enabled: Boolean, onMode: (PlaylistMode) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    if (device().compact) {
+        // Celular: seletor segmentado em duas metades.
+        FillButtons { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionButton("Link M3U", { onMode(PlaylistMode.LINK) }, Modifier.weight(1f), primary = mode == PlaylistMode.LINK, enabled = enabled)
+            ActionButton("Login", { onMode(PlaylistMode.LOGIN) }, Modifier.weight(1f), primary = mode == PlaylistMode.LOGIN, enabled = enabled)
+        } }
+        return
+    }
+    ButtonRow {
         ActionButton("Link M3U", { onMode(PlaylistMode.LINK) }, primary = mode == PlaylistMode.LINK, enabled = enabled)
         ActionButton("Login (host, usuário e senha)", { onMode(PlaylistMode.LOGIN) }, primary = mode == PlaylistMode.LOGIN, enabled = enabled)
     }
@@ -198,7 +223,7 @@ fun AddUrlDialog(kind: SourceKind, onDismiss: () -> Unit, onAdded: () -> Unit = 
             else "Use somente fontes que você tem autorização para acessar. O endereço fica cifrado neste aparelho.",
         )
         ImportStatus(busy, error)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Cancelar", onDismiss, enabled = !busy)
             ActionButton("Adicionar", ::submit, primary = true, enabled = !busy)
         }
@@ -248,7 +273,7 @@ fun EditPlaylistSourceDialog(playlist: Playlist, onDismiss: () -> Unit) {
         PlaylistSourceFields(mode, url, { url = it }, host, { host = it }, user, { user = it }, pass, { pass = it }, focus, ::submit)
         Muted("A lista é baixada de novo; favoritos e histórico são mantidos.")
         ImportStatus(busy, error)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Cancelar", onDismiss, enabled = !busy)
             ActionButton("Salvar e atualizar", ::submit, primary = true, enabled = !busy)
         }
@@ -297,18 +322,32 @@ fun WelcomeScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     val pickFile = rememberFileImport(SourceKind.PLAYLIST) { error = it }
     val focus = remember { FocusRequester() }
-    Column(Modifier.fillMaxSize().padding(64.dp), verticalArrangement = Arrangement.Center) {
+    val compact = device().compact
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(if (compact) 24.dp else 64.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
         Brand(big = true)
         Spacer(Modifier.height(24.dp))
-        Text(Txt.WELCOME_TITLE, style = MaterialTheme.typography.headlineMedium)
+        Text(Txt.WELCOME_TITLE, style = if (compact) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
-        Text(Txt.WELCOME_BODY, style = MaterialTheme.typography.bodyLarge, color = TuiColors.Muted, modifier = Modifier.width(720.dp))
+        Text(Txt.WELCOME_BODY, style = MaterialTheme.typography.bodyLarge, color = TuiColors.Muted, modifier = Modifier.widthIn(max = 720.dp))
         Spacer(Modifier.height(32.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            ActionButton(Txt.ADD_PLAYLIST, { adding = true }, Modifier.focusRequester(focus), Icons.Filled.Add, primary = true)
-            ActionButton(Txt.ADD_FILE, pickFile)
-            ActionButton(Txt.RESTORE, { restoring = true })
-            ActionButton(Txt.SETTINGS, { navigator.open(Route.Settings) }, icon = Icons.Filled.Settings)
+        if (compact) {
+            // Celular: a ação principal em destaque, na largura da tela; as demais logo abaixo.
+            FillButtons { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ActionButton(Txt.ADD_PLAYLIST, { adding = true }, Modifier.fillMaxWidth().focusRequester(focus), Icons.Filled.Add, primary = true)
+                ActionButton(Txt.ADD_FILE, pickFile, Modifier.fillMaxWidth())
+                ActionButton(Txt.RESTORE, { restoring = true }, Modifier.fillMaxWidth())
+                ActionButton(Txt.SETTINGS, { navigator.open(Route.Settings) }, Modifier.fillMaxWidth(), icon = Icons.Filled.Settings)
+            } }
+        } else {
+            ButtonRow(horizontalSpacing = 14.dp) {
+                ActionButton(Txt.ADD_PLAYLIST, { adding = true }, Modifier.focusRequester(focus), Icons.Filled.Add, primary = true)
+                ActionButton(Txt.ADD_FILE, pickFile)
+                ActionButton(Txt.RESTORE, { restoring = true })
+                ActionButton(Txt.SETTINGS, { navigator.open(Route.Settings) }, icon = Icons.Filled.Settings)
+            }
         }
     }
     RequestFocus(focus)
@@ -329,11 +368,13 @@ fun PlaylistsScreen() {
     val pickEpg = rememberFileImport(SourceKind.EPG) { error = it }
     val focus = remember { FocusRequester() }
 
-    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(6.dp, 0.dp, 6.dp, 48.dp)) {
+    val device = device()
+    val side = if (device.tv) 6.dp else device.gutter
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(side, 0.dp, side, 48.dp)) {
         item(key = "header") {
             Column {
                 ScreenTitle(Txt.PLAYLISTS, subtitle = "Listas M3U/M3U8 e guias de programação XMLTV. Tudo fica salvo somente neste aparelho.")
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ButtonRow {
                     ActionButton(Txt.ADD_PLAYLIST, { adding = SourceKind.PLAYLIST }, Modifier.focusRequester(focus), Icons.Filled.Add, primary = true)
                     ActionButton("Lista de arquivo", pickPlaylist)
                     ActionButton("Guia por endereço", { adding = SourceKind.EPG }, icon = Icons.Filled.Add)
@@ -365,7 +406,7 @@ private fun Panel(content: @Composable () -> Unit) {
         shape = RoundedCornerShape(12.dp),
         colors = SurfaceDefaults.colors(containerColor = TuiColors.NavyRaised, contentColor = TuiColors.White),
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+        Column(Modifier.padding(if (device().compact) 14.dp else 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
     }
 }
 
@@ -428,7 +469,7 @@ private fun PlaylistCard(p: Playlist) {
         )
         if (p.skipped > 0) Muted("${Txt.plural(p.skipped, "registro ignorado", "registros ignorados")} por estar incompleto ou inválido.")
         if (p.failedAt > p.updatedAt) Text("A última atualização automática falhou (${Txt.ago(p.failedAt)}).", color = TuiColors.Warning)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ButtonRow(horizontalSpacing = 10.dp) {
             if (!p.isFile) {
                 ActionButton("Atualizar", {
                     scope.launch {
@@ -476,7 +517,7 @@ private fun EpgCard(source: EpgSource) {
         )
         Muted(if (source.isFile) "Arquivo: ${source.fileName ?: "—"}" else source.url?.let(::maskUrl) ?: "—", maxLines = 1)
         if (source.failedAt > source.updatedAt) Text("A última atualização falhou (${Txt.ago(source.failedAt)}).", color = TuiColors.Warning)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ButtonRow(horizontalSpacing = 10.dp) {
             if (!source.isFile) {
                 ActionButton("Atualizar", {
                     scope.launch {
@@ -511,7 +552,7 @@ private fun RenameDialog(current: String, onDismiss: () -> Unit, onSave: (String
     }
     TuiDialog("Renomear lista", onDismiss) {
         TvTextField(name, { name = it }, "Nome", focusRequester = focus, onDone = ::save)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ButtonRow {
             ActionButton("Cancelar", onDismiss)
             ActionButton("Salvar", ::save, primary = true)
         }

@@ -47,6 +47,31 @@ import androidx.tv.material3.Text
 import androidx.tv.material3.rememberDrawerState
 import kotlinx.coroutines.delay
 import tv.tui.core.ContentKind
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import tv.tui.tuitv.ui.components.IconAction
+import tv.tui.tuitv.ui.components.tapToClick
 import tv.tui.tuitv.ui.components.ColumnPivot
 import tv.tui.tuitv.ui.components.ProgressLine
 import tv.tui.tuitv.ui.player.PlayerScreen
@@ -55,6 +80,7 @@ import tv.tui.tuitv.ui.screens.FavoritesScreen
 import tv.tui.tuitv.ui.screens.GuideScreen
 import tv.tui.tuitv.ui.screens.HistoryScreen
 import tv.tui.tuitv.ui.screens.HomeScreen
+import tv.tui.tuitv.ui.screens.MoreScreen
 import tv.tui.tuitv.ui.screens.LiveScreen
 import tv.tui.tuitv.ui.screens.MovieDetailScreen
 import tv.tui.tuitv.ui.screens.PlaylistsScreen
@@ -77,20 +103,137 @@ fun TuiRoot(initial: Route = Route.Home, splash: Boolean = true) {
         splashDone = true
     }
 
-    CompositionLocalProvider(LocalNavigator provides navigator, LocalToaster provides toaster) {
+    val device = rememberDevice()
+    CompositionLocalProvider(LocalNavigator provides navigator, LocalToaster provides toaster, LocalDevice provides device) {
         // Registrado antes do conteúdo: o player e os diálogos têm prioridade sobre ele.
         BackHandler(enabled = navigator.stack.size > 1) { navigator.back() }
+        val current = navigator.current
+        OrientationPolicy(device, playing = current is Route.Player)
         Box(Modifier.fillMaxSize().background(TuiColors.Navy)) {
-            val current = navigator.current
             val list = playlists
+            var shell = false
             when {
-                !splashDone || list == null -> Splash()
+                !splashDone || list == null -> Box(Modifier.systemBarsPadding()) { Splash() }
                 current is Route.Player -> PlayerScreen(current)
-                list.isEmpty() && current != Route.Playlists && current != Route.Settings -> WelcomeScreen()
-                else -> MainShell(navigator)
+                list.isEmpty() && current != Route.Playlists && current != Route.Settings -> Box(Modifier.systemBarsPadding()) { WelcomeScreen() }
+                device.tv -> MainShell(navigator)
+                else -> {
+                    shell = true
+                    TouchShell(navigator)
+                }
             }
-            JobsIndicator(Modifier.align(Alignment.BottomEnd).padding(24.dp))
-            ToastHost(toaster.message, Modifier.align(Alignment.BottomCenter).padding(bottom = 36.dp))
+            // No toque, avisos e progresso ficam acima da barra inferior.
+            val bottom = if (device.tv) Modifier else Modifier.navigationBarsPadding().padding(bottom = if (shell) BottomBarHeight else 0.dp)
+            JobsIndicator(Modifier.align(Alignment.BottomEnd).then(bottom).padding(if (device.compact) 12.dp else 24.dp))
+            ToastHost(toaster.message, Modifier.align(Alignment.BottomCenter).then(bottom).padding(bottom = if (device.tv) 36.dp else 16.dp, start = 16.dp, end = 16.dp))
+        }
+    }
+}
+
+/**
+ * Celular: navegação em pé (como o app da Netflix) e player deitado. Tablets e TVs giram livremente.
+ */
+@Composable
+private fun OrientationPolicy(device: Device, playing: Boolean) {
+    val activity = LocalContext.current.activity() ?: return
+    DisposableEffect(device.phone, playing) {
+        activity.requestedOrientation = when {
+            !device.phone -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            playing -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        onDispose { }
+    }
+}
+
+tailrec fun Context.activity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.activity()
+    else -> null
+}
+
+/** Altura da barra inferior (sem a área de gestos do sistema). */
+val BottomBarHeight = 64.dp
+
+/**
+ * Celular e tablet: cabeçalho com a marca e a busca, conteúdo e barra inferior com as abas —
+ * a mesma estrutura do app da Netflix no celular. Telas internas (ficha, Favoritos…) ganham Voltar.
+ */
+@Composable
+private fun TouchShell(navigator: Navigator) {
+    val holder = rememberSaveableStateHolder()
+    val route = navigator.current
+    val isTab = touchTabs.any { it.route == route }
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).fillMaxWidth().statusBarsPadding()) {
+            TouchTopBar(
+                back = !isTab,
+                search = route != Route.Search,
+                onBack = { navigator.back() },
+                onSearch = { navigator.push(Route.Search) },
+            )
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                holder.SaveableStateProvider(route.toString()) { Screen(route) }
+            }
+        }
+        BottomBar(navigator)
+    }
+}
+
+@Composable
+private fun TouchTopBar(back: Boolean, search: Boolean, onBack: () -> Unit, onSearch: () -> Unit) {
+    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (back) {
+            IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Voltar", onBack)
+            Spacer(Modifier.width(4.dp))
+        } else {
+            Spacer(Modifier.width(8.dp))
+        }
+        Brand()
+        Spacer(Modifier.weight(1f))
+        if (search) IconAction(Icons.Filled.Search, Txt.SEARCH, onSearch)
+    }
+}
+
+@Composable
+private fun BottomBar(navigator: Navigator) {
+    val current = navigator.tab
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(TuiColors.NavyDeep)
+            .navigationBarsPadding()
+            .height(BottomBarHeight),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (tab in touchTabs) {
+            val selected = tab.route == current
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val color = if (selected) TuiColors.White else TuiColors.Muted
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Tab
+                        this.selected = selected
+                        onClick { navigator.open(tab.route); true }
+                    }
+                    .tapToClick(interaction) { navigator.open(tab.route) }
+                    .graphicsLayer { val s = if (pressed) 0.92f else 1f; scaleX = s; scaleY = s },
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(tab.icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    tab.label,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal),
+                    color = color,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
@@ -176,6 +319,7 @@ private fun Screen(route: Route) {
         Route.History -> HistoryScreen()
         Route.Playlists -> PlaylistsScreen()
         Route.Settings -> SettingsScreen()
+        Route.More -> MoreScreen()
         is Route.MovieDetail -> MovieDetailScreen(route.itemId)
         is Route.SeriesDetail -> SeriesDetailScreen(route.playlistId, route.seriesKey)
         is Route.Player -> Unit
@@ -189,7 +333,7 @@ private fun JobsIndicator(modifier: Modifier) {
     val running = jobs.filter { it.running }
     AnimatedVisibility(running.isNotEmpty(), modifier, enter = fadeIn(), exit = fadeOut()) {
         Column(
-            Modifier.width(320.dp).clip(RoundedCornerShape(12.dp)).background(TuiColors.NavyRaised).padding(16.dp),
+            Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(12.dp)).background(TuiColors.NavyRaised).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             for (job in running) {

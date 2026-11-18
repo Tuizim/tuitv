@@ -60,6 +60,10 @@ import tv.tui.tuitv.ui.navigator
 import tv.tui.tuitv.ui.play
 import tv.tui.tuitv.ui.rememberFavoriteToggle
 import tv.tui.tuitv.ui.theme.TuiColors
+import tv.tui.tuitv.ui.device
+import tv.tui.tuitv.ui.components.Chip
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.widthIn
 
 /** Filtro de categoria serializado em texto (para sobreviver à navegação): "*" todos, "" sem categoria. */
 private fun filterOf(key: String): GroupFilter = when (key) {
@@ -149,6 +153,59 @@ private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (
     }
 }
 
+/** Celular: categorias numa fileira de pílulas acima do conteúdo; toque escolhe na hora. */
+@Composable
+private fun GroupChips(groups: List<GroupCount>?, selected: String, onSelect: (String) -> Unit) {
+    val all = listOf(GroupCount("*", 0)) + (groups ?: emptyList())
+    val state = rememberLazyListState()
+    LazyRow(
+        Modifier.fillMaxWidth(),
+        state = state,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 12.dp),
+    ) {
+        itemsIndexed(all, key = { _, g -> "c:" + g.name }) { _, group ->
+            val key = keyOf(group)
+            val label = when (key) {
+                "*" -> Txt.ALL
+                "" -> Txt.NO_GROUP
+                else -> key
+            }
+            Chip(label, key == selected, { onSelect(key) }, Modifier.widthIn(max = 240.dp))
+        }
+    }
+    // A categoria escolhida fica à vista (ex.: ao voltar para a tela).
+    LaunchedEffect(groups != null) {
+        val index = all.indexOfFirst { keyOf(it) == selected }
+        if (index > 0) state.scrollToItem(index)
+    }
+}
+
+/**
+ * Categorias conforme a tela: coluna à esquerda (TV e tablet) ou pílulas no topo (celular),
+ * com o conteúdo ocupando o resto.
+ */
+@Composable
+private fun WithGroups(
+    groups: List<GroupCount>?,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onOpen: () -> Unit,
+    columnWidth: Int = 260,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) {
+    if (device().compact) {
+        GroupChips(groups, selected, onSelect)
+        Row(Modifier.fillMaxSize(), content = content)
+    } else {
+        Row(Modifier.fillMaxSize()) {
+            GroupColumn(groups, selected, onSelect, onOpen = onOpen, width = if (device().tv) columnWidth else minOf(columnWidth, 220))
+            Spacer(Modifier.width(if (device().tv) 20.dp else 12.dp))
+            content()
+        }
+    }
+}
+
 /**
  * Quando o conteúdo deve receber o foco: ao abrir a tela e ao confirmar uma categoria com OK.
  * Navegar pelas categorias (que troca o conteúdo após uma pausa) nunca tira o foco da coluna.
@@ -169,11 +226,10 @@ fun LiveScreen() {
     val listState = rememberLazyListState()
     var focusContent by rememberContentFocus()
 
-    Column(Modifier.fillMaxSize()) {
-        ScreenTitle(Txt.LIVE, subtitle = items?.let { Txt.plural(it.size, "canal", "canais") + " · " + Txt.LONG_PRESS_HINT })
-        Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, setGroup, onOpen = { focusContent = true })
-            Spacer(Modifier.width(20.dp))
+    val device = device()
+    Column(Modifier.fillMaxSize().padding(horizontal = device.gutter)) {
+        ScreenTitle(Txt.LIVE, subtitle = items?.let { Txt.plural(it.size, "canal", "canais") + " · " + Txt.longPressHint(device.tv) })
+        WithGroups(groups, groupKey, setGroup, onOpen = { focusContent = true }) {
             val list = items
             when {
                 list == null -> Loading(Modifier.weight(1f))
@@ -184,7 +240,7 @@ fun LiveScreen() {
                         Modifier.weight(1f).fillMaxHeight().focusRestorer(memory.requester),
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
+                        contentPadding = if (device.tv) PaddingValues(vertical = 8.dp, horizontal = 6.dp) else PaddingValues(bottom = 24.dp),
                     ) {
                         itemsIndexed(list, key = { _, item -> item.id }) { index, item ->
                             ChannelRow(
@@ -222,9 +278,10 @@ private fun ChannelRow(number: Int, item: MediaItem, epgVersion: Int, onClick: (
         onLongClick = onLongClick,
         modifier = modifier,
         leading = {
+            val compact = device().compact
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(number.toString(), style = MaterialTheme.typography.bodyMedium, color = TuiColors.Muted, modifier = Modifier.width(44.dp))
-                RemoteImage(item.logo, item.name, Modifier.size(width = 72.dp, height = 44.dp))
+                Text(number.toString(), style = MaterialTheme.typography.bodyMedium, color = TuiColors.Muted, modifier = Modifier.width(if (compact) 32.dp else 44.dp))
+                RemoteImage(item.logo, item.name, Modifier.size(width = if (compact) 60.dp else 72.dp, height = if (compact) 38.dp else 44.dp))
             }
         },
     )
@@ -255,24 +312,24 @@ fun CatalogScreen(kind: ContentKind) {
     }.collectAsStateWithLifecycle(null)
 
     val count = if (kind == ContentKind.MOVIE) movies?.size else series?.size
-    Column(Modifier.fillMaxSize()) {
+    val device = device()
+    Column(Modifier.fillMaxSize().padding(horizontal = device.gutter)) {
         ScreenTitle(title, subtitle = count?.let { if (kind == ContentKind.MOVIE) Txt.plural(it, "filme", "filmes") else Txt.plural(it, "série", "séries") })
-        Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, setGroup, onOpen = { focusContent = true })
-            Spacer(Modifier.width(20.dp))
+        WithGroups(groups, groupKey, setGroup, onOpen = { focusContent = true }) {
             val loaded = if (kind == ContentKind.MOVIE) movies != null else series != null
             when {
                 !loaded -> Loading(Modifier.weight(1f))
                 count == 0 -> EmptyState(emptyText(), Modifier.weight(1f))
                 else -> {
                     ColumnPivot {
+                    // Celular: 3 capas por linha (como a Netflix); tablet e TV: quantas couberem.
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(140.dp),
+                        columns = GridCells.Adaptive(if (device.compact) 100.dp else if (device.tv) 140.dp else 128.dp),
                         state = gridState,
                         modifier = Modifier.weight(1f).fillMaxHeight().focusRestorer(memory.requester),
-                        contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(22.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp),
+                        contentPadding = if (device.tv) PaddingValues(16.dp) else PaddingValues(top = 4.dp, bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (device.tv) 22.dp else 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (device.tv) 24.dp else 16.dp),
                     ) {
                         if (kind == ContentKind.MOVIE) {
                             itemsIndexed(movies!!, key = { _, m -> m.id }) { index, movie ->
@@ -327,19 +384,19 @@ fun GuideScreen() {
     val memory = rememberFocusMemory("guide", groupKey)
     var focusContent by rememberContentFocus()
 
-    Column(Modifier.fillMaxSize()) {
+    val device = device()
+    Column(Modifier.fillMaxSize().padding(horizontal = device.gutter)) {
         ScreenTitle(Txt.GUIDE, subtitle = if (sources.isEmpty()) "Nenhum guia (XMLTV) adicionado. Adicione um em Listas." else null)
-        Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, setGroup, onOpen = { focusContent = true }, width = 220)
-            Spacer(Modifier.width(16.dp))
+        WithGroups(groups, groupKey, setGroup, onOpen = { focusContent = true }, columnWidth = 220) {
             val list = items
             when {
                 list == null -> Loading(Modifier.weight(1f))
                 list.isEmpty() -> EmptyState(emptyText(), Modifier.weight(1f))
                 else -> {
                     ColumnPivot {
+                    // Celular: só os canais com o programa atual (a grade não cabe ao lado).
                     LazyColumn(
-                        Modifier.width(360.dp).fillMaxHeight().focusRestorer(memory.requester),
+                        (if (device.compact) Modifier.weight(1f) else Modifier.width(if (device.tv) 360.dp else 300.dp)).fillMaxHeight().focusRestorer(memory.requester),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
                     ) {
@@ -356,8 +413,10 @@ fun GuideScreen() {
                     }
                     }
                     if (focusContent) RequestFocus(memory.requester, groupKey) { focusContent = false }
-                    Spacer(Modifier.width(20.dp))
-                    Schedule(focused, epgVersion, Modifier.weight(1f))
+                    if (!device.compact) {
+                        Spacer(Modifier.width(20.dp))
+                        Schedule(focused, epgVersion, Modifier.weight(1f))
+                    }
                 }
             }
         }

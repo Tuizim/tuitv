@@ -23,6 +23,7 @@ object Txt {
     const val HISTORY = "Histórico"
     const val PLAYLISTS = "Listas"
     const val SETTINGS = "Configurações"
+    const val MORE = "Mais"
     const val ALL = "Todos"
     const val NO_GROUP = "Sem categoria"
     const val CONTINUE = "Continuar assistindo"
@@ -44,6 +45,13 @@ object Txt {
     const val EMPTY_LIBRARY = "Nenhum conteúdo nas listas ativas."
     const val NO_RESULTS = "Nenhum resultado."
     const val LONG_PRESS_HINT = "Mantenha OK pressionado para favoritar"
+    const val TOUCH_LONG_PRESS_HINT = "Toque e segure para favoritar"
+
+    /** Dica de favoritar conforme o aparelho (controle remoto ou toque). */
+    fun longPressHint(tv: Boolean) = if (tv) LONG_PRESS_HINT else TOUCH_LONG_PRESS_HINT
+
+    fun emptyFavorites(tv: Boolean) =
+        if (tv) EMPTY_FAVORITES else "Nenhum favorito ainda. Toque e segure um canal, filme ou série para favoritar."
     const val UNEXPECTED = "Ocorreu um erro inesperado."
 
     fun importError(e: Throwable): String {
