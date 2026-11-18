@@ -90,7 +90,7 @@ export function Catalog<T extends { group?: string; year?: number }>({
   return (
     <>
       <header className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-        <h1 className="text-3xl font-extrabold tracking-tight">{title}</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight max-md:sr-only">{title}</h1>
         <Dropdown
           label={t('Categoria')}
           value={group}

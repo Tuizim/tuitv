@@ -2,6 +2,7 @@
 
 import { isTv } from '@/lib/platform';
 import {
+  ArrowLeft,
   CalendarDays,
   Clapperboard,
   Download,
@@ -52,6 +53,13 @@ export const SECONDARY: NavItem[] = [
   { href: '/settings', label: 'Configurações', icon: SettingsIcon },
 ];
 
+/** Celular: barra inferior enxuta, como nos apps de streaming. Filmes e Séries ficam nos atalhos do topo do Início. */
+const BOTTOM = ['/', '/live', '/favorites'];
+/** Celular: atalhos em pílula abaixo do cabeçalho, como os filtros do topo do app da Netflix. */
+const CHIPS = ['/series', '/movies', '/live'];
+/** Telas de um item (ficha, série, player, busca): no celular o topo mostra só o voltar e a busca. */
+const DETAIL = ['/series/view', '/series/continue', '/title', '/watch', '/search'];
+
 const clean = (path: string) => (path.length > 1 ? path.replace(/\/$/, '') : path);
 const isActive = (pathname: string, href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
 
@@ -76,6 +84,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState(false);
   const [searching, setSearching] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // Celular: os atalhos do topo recolhem ao rolar para baixo e voltam ao rolar para cima.
+  const [chipsHidden, setChipsHidden] = useState(false);
   const [pin, setPin] = useState(false);
   const [online, setOnline] = useState(true);
   const [install, setInstall] = useState<InstallPrompt | null>(null);
@@ -120,7 +130,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     setOnline(navigator.onLine);
     const on = () => setOnline(true);
     const off = () => setOnline(false);
-    const onScroll = () => setScrolled(window.scrollY > 8);
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      setScrolled(y > 8);
+      if (y < 80 || y < lastY - 6) setChipsHidden(false);
+      else if (y > lastY + 6) setChipsHidden(true);
+      if (Math.abs(y - lastY) > 6) lastY = y;
+    };
     const onInstall = (event: Event) => {
       event.preventDefault();
       setInstall(event as InstallPrompt);
@@ -157,6 +174,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (value.trim() && pathname !== '/search') searchTimer.current = setTimeout(() => router.push('/search'), 250);
   };
   const searchOpen = searching || query.length > 0;
+  const home = pathname === '/';
+  const detail = DETAIL.some((href) => isActive(pathname, href));
+  const section = detail ? undefined : [...PRIMARY, ...SECONDARY].find((n) => n.href !== '/' && isActive(pathname, n.href));
+  const withChips = home || pathname === '/movies' || pathname === '/series';
 
   const extras = (
     <>
@@ -207,118 +228,164 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header
         className={cx(
-          'fixed inset-x-0 top-0 z-40 flex h-16 items-center gap-2 px-4 transition-colors duration-300 lg:px-12',
-          scrolled || menu ? 'border-b border-line/60 bg-bg/95 backdrop-blur' : 'bg-gradient-to-b from-black/80 to-transparent',
+          'fixed inset-x-0 top-0 z-40 px-4 transition-colors duration-300 lg:px-12',
+          scrolled || menu ? 'border-b border-line/60 bg-bg/95 backdrop-blur' : 'bg-gradient-to-b from-black/80 via-black/40 to-transparent',
         )}
       >
-        {/* Na TV o logotipo é só marca: não recebe o foco do controle (Início fica no menu). */}
-        <Link href="/" aria-label="TuiTV" tabIndex={isTv() ? -1 : undefined} className={cx('shrink-0 rounded-lg', searchOpen && 'max-sm:hidden')}>
-          {/* No celular só o gato (SVG); o logotipo com o nome volta a partir do md. */}
-          <CatMark className="size-9 md:hidden" />
-          <Logo className="text-2xl max-md:hidden" />
-        </Link>
+        <div className="flex h-16 items-center gap-2">
+          {/* Celular: o topo diz onde se está — o gato no Início, o nome da seção nas abas e o voltar nas fichas. */}
+          {detail ? (
+            <button
+              type="button"
+              onClick={() => router.back()}
+              aria-label={t('Voltar')}
+              className={cx('-ml-2 flex size-10 shrink-0 items-center justify-center rounded-full bg-black/30 backdrop-blur md:hidden', searchOpen && 'max-sm:hidden')}
+            >
+              <ArrowLeft className="size-5" />
+            </button>
+          ) : section ? (
+            <p className={cx('min-w-0 truncate text-2xl font-extrabold tracking-tight md:hidden', searchOpen && 'max-sm:hidden')}>{t(section.label)}</p>
+          ) : (
+            <Link href="/" aria-label="TuiTV" className={cx('shrink-0 rounded-lg md:hidden', searchOpen && 'max-sm:hidden')}>
+              <CatMark className="size-9" />
+            </Link>
+          )}
+          {/* Na TV o logotipo é só marca: não recebe o foco do controle (Início fica no menu). */}
+          <Link href="/" aria-label="TuiTV" tabIndex={isTv() ? -1 : undefined} className="shrink-0 rounded-lg max-md:hidden">
+            <Logo className="text-2xl" />
+          </Link>
 
-        <nav className="ml-6 hidden items-center gap-1 md:flex" aria-label={t('Menu principal')}>
-          {PRIMARY.map(({ href, label }) => {
+          <nav className="ml-6 hidden items-center gap-1 md:flex" aria-label={t('Menu principal')}>
+            {PRIMARY.map(({ href, label }) => {
+              const active = isActive(pathname, href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? 'page' : undefined}
+                  className={cx('rounded-lg px-3 py-2 text-sm transition', active ? 'font-bold text-ink' : 'font-medium text-muted hover:text-ink')}
+                >
+                  {t(label)}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <span className="flex-1" />
+
+          {!online && (
+            <span className="hidden shrink-0 items-center gap-1.5 text-xs font-medium text-warning sm:inline-flex">
+              <WifiOff className="size-4" /> {t('Sem internet')}
+            </span>
+          )}
+
+          <form
+            role="search"
+            className={cx(
+              'flex h-10 items-center overflow-hidden rounded-full border transition-all duration-200',
+              searchOpen ? 'w-full border-line bg-bg/90 sm:w-72' : 'w-10 border-transparent',
+            )}
+            onSubmit={(event) => {
+              event.preventDefault();
+              clearTimeout(searchTimer.current);
+              if (query.trim()) router.push('/search');
+            }}
+          >
+            <button
+              type="button"
+              aria-label={t('Buscar')}
+              title={t('Buscar')}
+              onClick={() => {
+                setSearching(true);
+                searchRef.current?.focus();
+              }}
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-ink hover:bg-surface-2"
+            >
+              <Search className="size-5" />
+            </button>
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              tabIndex={searchOpen ? 0 : -1}
+              onChange={(event) => onSearch(event.target.value)}
+              onFocus={() => setSearching(true)}
+              onBlur={() => setSearching(false)}
+              placeholder={t('Canais, filmes, séries…')}
+              aria-label={t('Buscar canais, filmes e séries')}
+              className="h-full min-w-0 flex-1 bg-transparent pr-4 text-sm placeholder:text-muted/80 focus:outline-none"
+            />
+          </form>
+
+          <div
+            ref={menuRef}
+            className="relative hidden md:block"
+            onKeyDown={(event) => {
+              if (menu && event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                closeMenu();
+              }
+            }}
+            onBlur={(event) => {
+              // O foco saiu do menu (setas, Tab): fecha, como nos aplicativos de TV.
+              const next = event.relatedTarget as Node | null;
+              if (menu && next && !event.currentTarget.contains(next)) setMenu(false);
+            }}
+          >
+            <button
+              ref={menuButtonRef}
+              type="button"
+              aria-label={t('Menu')}
+              title={t('Menu')}
+              aria-haspopup="menu"
+              aria-expanded={menu}
+              onClick={() => setMenu(!menu)}
+              className={cx('flex size-10 items-center justify-center rounded-full hover:bg-surface-2', SECONDARY.some((n) => isActive(pathname, n.href)) && 'text-accent')}
+            >
+              <Menu className="size-5" />
+            </button>
+            {menu && (
+              <div role="menu" onClick={() => setMenu(false)} className="tui-fade absolute right-0 mt-2 w-64 rounded-xl border border-line bg-surface p-1.5 shadow-2xl shadow-black/60">
+                {secondaryLinks}
+                {extras}
+                <p className="mt-1 border-t border-line px-3 pt-2 pb-1 text-[11px] text-muted">{t('100% local · sem conta · sem login')}</p>
+              </div>
+            )}
+          </div>
+      </div>
+
+      {withChips && (
+        <nav
+          aria-label={t('Explorar')}
+          className={cx('-mx-4 flex gap-2 overflow-x-auto px-4 transition-all duration-300 md:hidden', chipsHidden ? 'pointer-events-none max-h-0 pb-0 opacity-0' : 'max-h-14 pb-3 opacity-100')}
+        >
+          {/* Numa seção, a pílula dela fica preenchida e o X volta ao Início. */}
+          {!home && (
+            <Link href="/" aria-label={t('Início')} className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/40">
+              <X className="size-4" />
+            </Link>
+          )}
+          {CHIPS.map((href) => {
+            const item = PRIMARY.find((n) => n.href === href)!;
             const active = isActive(pathname, href);
+            if (!home && !active) return null;
             return (
               <Link
                 key={href}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={cx('rounded-lg px-3 py-2 text-sm transition', active ? 'font-bold text-ink' : 'font-medium text-muted hover:text-ink')}
+                className={cx('flex h-9 shrink-0 items-center rounded-full border px-4 text-sm font-semibold', active ? 'border-white bg-white text-[#070c16]' : 'border-white/40 text-ink')}
               >
-                {t(label)}
+                {t(item.label)}
               </Link>
             );
           })}
         </nav>
-
-        <span className="flex-1" />
-
-        {!online && (
-          <span className="hidden shrink-0 items-center gap-1.5 text-xs font-medium text-warning sm:inline-flex">
-            <WifiOff className="size-4" /> {t('Sem internet')}
-          </span>
-        )}
-
-        <form
-          role="search"
-          className={cx(
-            'flex h-10 items-center overflow-hidden rounded-full border transition-all duration-200',
-            searchOpen ? 'w-full border-line bg-bg/90 sm:w-72' : 'w-10 border-transparent',
-          )}
-          onSubmit={(event) => {
-            event.preventDefault();
-            clearTimeout(searchTimer.current);
-            if (query.trim()) router.push('/search');
-          }}
-        >
-          <button
-            type="button"
-            aria-label={t('Buscar')}
-            title={t('Buscar')}
-            onClick={() => {
-              setSearching(true);
-              searchRef.current?.focus();
-            }}
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-ink hover:bg-surface-2"
-          >
-            <Search className="size-5" />
-          </button>
-          <input
-            ref={searchRef}
-            type="search"
-            value={query}
-            tabIndex={searchOpen ? 0 : -1}
-            onChange={(event) => onSearch(event.target.value)}
-            onFocus={() => setSearching(true)}
-            onBlur={() => setSearching(false)}
-            placeholder={t('Canais, filmes, séries…')}
-            aria-label={t('Buscar canais, filmes e séries')}
-            className="h-full min-w-0 flex-1 bg-transparent pr-4 text-sm placeholder:text-muted/80 focus:outline-none"
-          />
-        </form>
-
-        <div
-          ref={menuRef}
-          className="relative hidden md:block"
-          onKeyDown={(event) => {
-            if (menu && event.key === 'Escape') {
-              event.preventDefault();
-              event.stopPropagation();
-              closeMenu();
-            }
-          }}
-          onBlur={(event) => {
-            // O foco saiu do menu (setas, Tab): fecha, como nos aplicativos de TV.
-            const next = event.relatedTarget as Node | null;
-            if (menu && next && !event.currentTarget.contains(next)) setMenu(false);
-          }}
-        >
-          <button
-            ref={menuButtonRef}
-            type="button"
-            aria-label={t('Menu')}
-            title={t('Menu')}
-            aria-haspopup="menu"
-            aria-expanded={menu}
-            onClick={() => setMenu(!menu)}
-            className={cx('flex size-10 items-center justify-center rounded-full hover:bg-surface-2', SECONDARY.some((n) => isActive(pathname, n.href)) && 'text-accent')}
-          >
-            <Menu className="size-5" />
-          </button>
-          {menu && (
-            <div role="menu" onClick={() => setMenu(false)} className="tui-fade absolute right-0 mt-2 w-64 rounded-xl border border-line bg-surface p-1.5 shadow-2xl shadow-black/60">
-              {secondaryLinks}
-              {extras}
-              <p className="mt-1 border-t border-line px-3 pt-2 pb-1 text-[11px] text-muted">{t('100% local · sem conta · sem login')}</p>
-            </div>
-          )}
-        </div>
+      )}
       </header>
 
-      <main className="tui-fade min-h-dvh px-4 pt-20 pb-24 md:pb-10 lg:px-12" key={pathname}>
+      <main className={cx('tui-fade min-h-dvh px-4 pt-20 pb-24 md:pb-10 lg:px-12', withChips && 'max-md:pt-32')} key={pathname}>
         <div className="mb-4 space-y-2 empty:hidden">
           {!online && (
             <Notice tone="warning">
@@ -340,17 +407,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       </main>
 
       {/* Menu móvel */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-line bg-bg-deep/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden" aria-label={t('Menu principal')}>
-        {PRIMARY.slice(0, 4).map(({ href, label, icon: Icon }) => {
-          const active = isActive(pathname, href);
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-line/60 bg-bg-deep/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden" aria-label={t('Menu principal')}>
+        {PRIMARY.filter((n) => BOTTOM.includes(n.href)).map(({ href, label, icon: Icon }) => {
+          // Filmes e Séries abrem pelas pílulas do Início: o Início continua aceso.
+          const active = isActive(pathname, href) || (href === '/' && (isActive(pathname, '/movies') || isActive(pathname, '/series')));
           return (
-            <Link key={href} href={href} aria-current={active ? 'page' : undefined} className={cx('flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium', active ? 'text-accent' : 'text-muted')}>
+            <Link key={href} href={href} aria-current={active ? 'page' : undefined} className={cx('flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium', active ? 'text-ink' : 'text-muted')}>
               <Icon className="size-5" />
               <span className="max-w-full truncate px-1">{t(label)}</span>
             </Link>
           );
         })}
-        <button type="button" onClick={() => setMenu(true)} aria-expanded={menu} className={cx('flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium', [...PRIMARY.slice(4), ...SECONDARY].some((n) => isActive(pathname, n.href)) ? 'text-accent' : 'text-muted')}>
+        <button type="button" onClick={() => setMenu(true)} aria-expanded={menu} className={cx('flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium', !detail && SECONDARY.some((n) => isActive(pathname, n.href)) ? 'text-ink' : 'text-muted')}>
           <Menu className="size-5" />
           <span>{t('Mais')}</span>
         </button>
@@ -364,11 +432,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <X className="size-5" />
               </IconButton>
             </div>
-            {PRIMARY.slice(4).map(({ href, label, icon: Icon }) => (
-              <Link key={href} href={href} className={cx('flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium', isActive(pathname, href) ? 'text-accent' : 'text-ink')}>
-                <Icon className="size-5 shrink-0 text-muted" /> {t(label)}
-              </Link>
-            ))}
             {secondaryLinks}
             {extras}
           </div>

@@ -56,18 +56,19 @@ val destinations = listOf(
     Destination(Route.Settings, Txt.SETTINGS, Icons.Filled.Settings),
 )
 
-/** Abas da barra inferior (toque): Início, Ao vivo, Filmes, Séries e Mais. */
+/**
+ * Abas da barra inferior (toque), enxuta como a do app da Netflix: Início, Ao vivo, Favoritos e Mais.
+ * Filmes e Séries ficam nas pílulas do topo do Início (com o Início aceso).
+ */
 val touchTabs = listOf(
     Destination(Route.Home, Txt.HOME, Icons.Filled.Home),
     Destination(Route.Live, Txt.LIVE, TuiIcons.LiveTv),
-    Destination(Route.Movies, Txt.MOVIES, TuiIcons.Movie),
-    Destination(Route.Series, Txt.SERIES, TuiIcons.Series),
+    Destination(Route.Favorites, Txt.FAVORITES, Icons.Filled.Favorite),
     Destination(Route.More, Txt.MORE, Icons.Filled.Menu),
 )
 
 /** Itens da tela "Mais", na ordem em que aparecem. */
 val moreDestinations = listOf(
-    Destination(Route.Favorites, Txt.FAVORITES, Icons.Filled.Favorite),
     Destination(Route.History, Txt.HISTORY, TuiIcons.History),
     Destination(Route.Guide, Txt.GUIDE, TuiIcons.Guide),
     Destination(Route.Playlists, Txt.PLAYLISTS, TuiIcons.Playlists),

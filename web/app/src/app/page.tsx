@@ -281,7 +281,7 @@ function Hero({ resume, lastChannel }: { resume?: Resume; lastChannel?: MediaIte
   ].filter((s) => s.show);
 
   return (
-    <section className="relative -mx-4 -mt-20 mb-8 flex min-h-[26rem] items-end overflow-hidden px-4 pt-24 pb-8 sm:min-h-[30rem] lg:-mx-12 lg:px-12" data-testid="hero">
+    <section className="relative -mx-4 -mt-20 mb-8 flex min-h-[26rem] items-end overflow-hidden px-4 pt-24 pb-8 max-md:-mt-32 max-md:min-h-0 max-md:pt-36 max-md:pb-4 sm:min-h-[30rem] lg:-mx-12 lg:px-12" data-testid="hero">
       {featured.image && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={featured.image} alt="" referrerPolicy="no-referrer" className="absolute inset-0 size-full scale-125 object-cover opacity-45 blur-3xl" />
@@ -289,7 +289,32 @@ function Hero({ resume, lastChannel }: { resume?: Resume; lastChannel?: MediaIte
       <div className="absolute inset-0 bg-gradient-to-r from-bg via-bg/70 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-bg to-transparent" />
 
-      <div className="relative flex w-full items-end justify-between gap-8">
+      {/* Celular: cartaz grande ao centro, com título e botões por cima (o destaque dos apps de streaming). */}
+      <div className="relative mx-auto w-full max-w-sm md:hidden">
+        <Link href={featured.href} aria-label={featured.title} className="block overflow-hidden rounded-2xl shadow-2xl shadow-black/70 ring-1 ring-white/10">
+          <Thumb src={featured.image} name={featured.title} fit={featured.wide ? 'contain' : 'cover'} className="aspect-[4/5] w-full text-5xl" />
+        </Link>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 rounded-b-2xl bg-gradient-to-t from-black/95 via-black/70 to-transparent px-4 pt-20 pb-4 text-center">
+          <p className="text-[11px] font-bold tracking-[0.2em] text-accent uppercase">{featured.label}</p>
+          <h1 className="mt-1 line-clamp-2 text-2xl leading-tight font-extrabold tracking-tight">{featured.title}</h1>
+          <p className="mt-1 truncate text-xs text-ink/75">{featured.meta.filter(Boolean).join(' · ')}</p>
+          {resume && (
+            <div className="mx-auto mt-3 h-1 w-40 overflow-hidden rounded-full bg-white/20">
+              <div className="h-full bg-accent" style={{ width: `${Math.min(100, resume.progress * 100)}%` }} />
+            </div>
+          )}
+          <div className={cx('pointer-events-auto mt-4 grid gap-2', featured.item && featured.item.kind !== 'series' ? 'grid-cols-2' : 'grid-cols-1')}>
+            <Link href={featured.href} className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-white text-sm font-bold text-[#070c16]">
+              <Play className="size-5" fill="currentColor" /> {resume ? t('Continuar') : t('Assistir')}
+            </Link>
+            {featured.item && featured.item.kind !== 'series' && (
+              <FavoriteButton id={featured.item.id} kind={featured.item.kind} playlistId={featured.item.playlistId} withLabel className="h-11 justify-center rounded-md bg-white/20 backdrop-blur" />
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="relative flex w-full items-end justify-between gap-8 max-md:hidden">
         <div className="max-w-xl min-w-0">
           <p className="text-xs font-bold tracking-[0.2em] text-accent uppercase">{featured.label}</p>
           <h1 className="mt-2 line-clamp-3 text-3xl leading-tight font-extrabold tracking-tight sm:text-5xl">{featured.title}</h1>

@@ -8,6 +8,18 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -167,16 +179,32 @@ val BottomBarHeight = 64.dp
 private fun TouchShell(navigator: Navigator) {
     val holder = rememberSaveableStateHolder()
     val route = navigator.current
-    val isTab = touchTabs.any { it.route == route }
+    // Filmes e Séries abrem pelas pílulas do Início: como as abas, não ganham Voltar (o X da pílula volta ao Início).
+    val isTab = touchTabs.any { it.route == route } || route == Route.Movies || route == Route.Series
+    val withChips = route == Route.Home || route == Route.Movies || route == Route.Series
+    // As pílulas recolhem ao rolar para baixo e voltam ao rolar para cima.
+    val chipsVisible = remember(route) { mutableStateOf(true) }
+    val scroll = remember(chipsVisible) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -6f) chipsVisible.value = false else if (available.y > 6f) chipsVisible.value = true
+                return Offset.Zero
+            }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).fillMaxWidth().statusBarsPadding()) {
             TouchTopBar(
                 back = !isTab,
+                title = touchTitle(route),
                 search = route != Route.Search,
                 onBack = { navigator.back() },
                 onSearch = { navigator.push(Route.Search) },
             )
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            AnimatedVisibility(withChips && chipsVisible.value, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                TouchChips(route, navigator)
+            }
+            Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(scroll)) {
                 holder.SaveableStateProvider(route.toString()) { Screen(route) }
             }
         }
@@ -184,8 +212,19 @@ private fun TouchShell(navigator: Navigator) {
     }
 }
 
+/** Nome da seção no topo do celular; o Início mostra o gato e as fichas, só o Voltar. */
+private fun touchTitle(route: Route): String? = when (route) {
+    Route.Home -> null
+    Route.More -> Txt.MORE
+    else -> destinations.firstOrNull { it.route == route }?.label
+}
+
+/**
+ * Topo do celular, como no app da Netflix: diz onde se está (o gato no Início, o nome da seção nas abas)
+ * e, nas telas internas, traz o Voltar.
+ */
 @Composable
-private fun TouchTopBar(back: Boolean, search: Boolean, onBack: () -> Unit, onSearch: () -> Unit) {
+private fun TouchTopBar(back: Boolean, title: String?, search: Boolean, onBack: () -> Unit, onSearch: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (back) {
             IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Voltar", onBack)
@@ -193,10 +232,69 @@ private fun TouchTopBar(back: Boolean, search: Boolean, onBack: () -> Unit, onSe
         } else {
             Spacer(Modifier.width(8.dp))
         }
-        // Celular: só o gato, como na Web (o logotipo com o nome fica para o menu da TV).
-        Image(painterResource(R.drawable.tuitv_icone), contentDescription = "TuiTV", modifier = Modifier.size(36.dp), contentScale = ContentScale.Fit)
-        Spacer(Modifier.weight(1f))
+        when {
+            title != null -> Text(
+                title,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+                color = TuiColors.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            back -> Spacer(Modifier.weight(1f))
+            else -> {
+                Image(painterResource(R.drawable.tuitv_icone), contentDescription = "TuiTV", modifier = Modifier.size(36.dp), contentScale = ContentScale.Fit)
+                Spacer(Modifier.weight(1f))
+            }
+        }
         if (search) IconAction(Icons.Filled.Search, Txt.SEARCH, onSearch)
+    }
+}
+
+/** Atalhos em pílula abaixo do topo (Início, Filmes e Séries), como os filtros do app da Netflix. */
+private val chipRoutes = listOf(Route.Series to Txt.SERIES, Route.Movies to Txt.MOVIES, Route.Live to Txt.LIVE)
+
+@Composable
+private fun TouchChips(route: Route, navigator: Navigator) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Numa seção, a pílula dela fica preenchida e o X volta ao Início.
+        if (route != Route.Home) Chip(null, selected = false, description = Txt.HOME) { navigator.open(Route.Home) }
+        for ((target, label) in chipRoutes) {
+            if (route == Route.Home || route == target) Chip(label, selected = route == target) { navigator.open(target) }
+        }
+    }
+}
+
+@Composable
+private fun Chip(label: String?, selected: Boolean, description: String? = null, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier
+            .height(36.dp)
+            .then(if (label == null) Modifier.width(36.dp) else Modifier)
+            .graphicsLayer { val s = if (pressed) 0.94f else 1f; scaleX = s; scaleY = s }
+            .clip(shape)
+            .background(if (selected) TuiColors.White else Color.Transparent)
+            .border(1.dp, if (selected) TuiColors.White else TuiColors.White.copy(alpha = 0.4f), shape)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                if (description != null) contentDescription = description
+                onClick { onClick(); true }
+            }
+            .tapToClick(interaction, onClick = onClick)
+            .padding(horizontal = if (label == null) 0.dp else 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (label != null) {
+            Text(label, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold), color = if (selected) TuiColors.Navy else TuiColors.White, maxLines = 1)
+        } else {
+            Icon(Icons.Filled.Close, contentDescription = null, tint = TuiColors.White, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

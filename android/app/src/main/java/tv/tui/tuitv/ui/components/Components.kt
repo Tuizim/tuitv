@@ -200,7 +200,8 @@ fun ActionButton(
 @Composable
 fun ScreenTitle(text: String, modifier: Modifier = Modifier, subtitle: String? = null) {
     Column(modifier.padding(bottom = 16.dp)) {
-        Text(text, style = MaterialTheme.typography.headlineMedium, color = TuiColors.White)
+        // No toque o nome da tela já está no topo (TouchTopBar): aqui fica só o subtítulo.
+        if (device().tv) Text(text, style = MaterialTheme.typography.headlineMedium, color = TuiColors.White)
         if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = TuiColors.Muted)
     }
 }

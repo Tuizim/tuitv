@@ -117,7 +117,7 @@ class PhoneUiTest {
         waitFor("Canais ao vivo")
         waitFor(Txt.MOVIES)
         shot("celular-03-inicio")
-        tab(Txt.MOVIES)
+        tap(Txt.MOVIES)
         waitFor("O Grande Filme (2019)")
         shot("celular-04-filmes")
         tap("O Grande Filme (2019)")

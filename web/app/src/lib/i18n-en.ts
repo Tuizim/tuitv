@@ -225,6 +225,7 @@ export const en: Record<string, string> = {
   'Os dados locais do TuiTV neste navegador parecem ter sido apagados. Se você tem um arquivo de backup, restaure-o em Configurações.': 'TuiTV local data in this browser seems to have been erased. If you have a backup file, restore it in Settings.',
   'O armazenamento do navegador está quase cheio. Faça um backup e remova listas ou guias que não usa em Configurações.': 'Browser storage is almost full. Make a backup and remove playlists or guides you do not use.',
   'Mais': 'More',
+  'Explorar': 'Explore',
   'Fechar': 'Close',
   'Importando guia…': 'Importing guide…',
   'Importando lista…': 'Importing playlist…',
