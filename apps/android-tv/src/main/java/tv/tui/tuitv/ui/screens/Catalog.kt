@@ -70,6 +70,37 @@ private fun filterOf(key: String): GroupFilter = when (key) {
 
 private fun keyOf(group: GroupCount) = group.name
 
+/** Login conectando: a categoria inicial ainda não é conhecida (nada é pedido ao servidor até lá). */
+private const val PENDING = "\u0000pending"
+
+/**
+ * Categoria escolhida. Com login sob demanda, a tela abre na primeira categoria do servidor:
+ * "Todas" pediria a lista inteira e fica só como opção.
+ */
+@Composable
+private fun rememberGroupKey(key: Any, groups: List<GroupCount>?): Pair<String, (String) -> Unit> {
+    val library = library()
+    var chosen by rememberSaveable(key) { mutableStateOf<String?>(null) }
+    val remote by library.hasRemote.collectAsStateWithLifecycle<Boolean?>(null)
+    val current = chosen ?: when (remote) {
+        null -> PENDING
+        false -> "*"
+        true -> groups?.let { it.firstOrNull()?.name ?: "*" } ?: PENDING
+    }
+    return current to { chosen = it }
+}
+
+/** Conteúdo da categoria; nada é consultado enquanto a categoria inicial não é conhecida. */
+private fun itemsFor(library: tv.tui.tuitv.data.Library, kind: ContentKind, groupKey: String): kotlinx.coroutines.flow.Flow<List<MediaItem>?> =
+    if (groupKey == PENDING) kotlinx.coroutines.flow.flowOf(null) else library.items(kind, filterOf(groupKey))
+
+/** Categoria vazia — ou, com login, a falha ao consultar o servidor. */
+@Composable
+private fun emptyText(): String {
+    val errors by library().remoteErrors.collectAsStateWithLifecycle()
+    return errors.values.firstOrNull()?.let(Txt::importError) ?: Txt.EMPTY_GROUP
+}
+
 /**
  * Coluna de categorias. A categoria em foco é aplicada após uma breve pausa (navegação rápida
  * pelo controle não dispara consultas a cada passo); OK aplica na hora e leva o foco ao conteúdo.
@@ -101,7 +132,8 @@ private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (
             }
             ListRow(
                 title = label,
-                trailing = Txt.number(group.count),
+                // Categorias de login ainda não carregadas não têm contagem.
+                trailing = group.count.takeIf { it > 0 }?.let(Txt::number),
                 selected = key == selected,
                 onFocus = { pending = key },
                 onClick = {
@@ -120,9 +152,9 @@ fun LiveScreen() {
     val library = library()
     val navigator = navigator()
     val toggleFavorite = rememberFavoriteToggle()
-    var groupKey by rememberSaveable { mutableStateOf("*") }
     val groups by remember { library.groups(ContentKind.LIVE) }.collectAsStateWithLifecycle(null)
-    val items by remember(groupKey) { library.items(ContentKind.LIVE, filterOf(groupKey)) }.collectAsStateWithLifecycle(null)
+    val (groupKey, setGroup) = rememberGroupKey("live", groups)
+    val items by remember(groupKey) { itemsFor(library, ContentKind.LIVE, groupKey) }.collectAsStateWithLifecycle(null)
     val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
     val memory = rememberFocusMemory("channels", groupKey)
     val listState = rememberLazyListState()
@@ -130,12 +162,12 @@ fun LiveScreen() {
     Column(Modifier.fillMaxSize()) {
         ScreenTitle(Txt.LIVE, subtitle = items?.let { Txt.plural(it.size, "canal", "canais") + " · " + Txt.LONG_PRESS_HINT })
         Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, { groupKey = it })
+            GroupColumn(groups, groupKey, setGroup)
             Spacer(Modifier.width(20.dp))
             val list = items
             when {
                 list == null -> Loading(Modifier.weight(1f))
-                list.isEmpty() -> EmptyState(Txt.EMPTY_GROUP, Modifier.weight(1f))
+                list.isEmpty() -> EmptyState(emptyText(), Modifier.weight(1f))
                 else -> {
                     LazyColumn(
                         Modifier.weight(1f).fillMaxHeight(),
@@ -192,29 +224,33 @@ fun CatalogScreen(kind: ContentKind) {
     val library = library()
     val navigator = navigator()
     val toggleFavorite = rememberFavoriteToggle()
-    var groupKey by rememberSaveable(kind) { mutableStateOf("*") }
     val groups by remember(kind) { library.groups(kind) }.collectAsStateWithLifecycle(null)
+    val (groupKey, setGroup) = rememberGroupKey(kind, groups)
     val memory = rememberFocusMemory(kind, groupKey)
     val gridState = rememberLazyGridState()
     val title = if (kind == ContentKind.MOVIE) Txt.MOVIES else Txt.SERIES
 
     val movies by remember(groupKey, kind) {
-        if (kind == ContentKind.MOVIE) library.items(kind, filterOf(groupKey)) else kotlinx.coroutines.flow.flowOf(emptyList())
+        if (kind == ContentKind.MOVIE) itemsFor(library, kind, groupKey) else kotlinx.coroutines.flow.flowOf(emptyList())
     }.collectAsStateWithLifecycle(null)
     val series by remember(groupKey, kind) {
-        if (kind == ContentKind.SERIES) library.series(filterOf(groupKey)) else kotlinx.coroutines.flow.flowOf(emptyList())
+        when {
+            kind != ContentKind.SERIES -> kotlinx.coroutines.flow.flowOf(emptyList())
+            groupKey == PENDING -> kotlinx.coroutines.flow.flowOf(null)
+            else -> library.series(filterOf(groupKey))
+        }
     }.collectAsStateWithLifecycle(null)
 
     val count = if (kind == ContentKind.MOVIE) movies?.size else series?.size
     Column(Modifier.fillMaxSize()) {
         ScreenTitle(title, subtitle = count?.let { if (kind == ContentKind.MOVIE) Txt.plural(it, "filme", "filmes") else Txt.plural(it, "série", "séries") })
         Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, { groupKey = it })
+            GroupColumn(groups, groupKey, setGroup)
             Spacer(Modifier.width(20.dp))
             val loaded = if (kind == ContentKind.MOVIE) movies != null else series != null
             when {
                 !loaded -> Loading(Modifier.weight(1f))
-                count == 0 -> EmptyState(Txt.EMPTY_GROUP, Modifier.weight(1f))
+                count == 0 -> EmptyState(emptyText(), Modifier.weight(1f))
                 else -> {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(150.dp),
@@ -240,7 +276,8 @@ fun CatalogScreen(kind: ContentKind) {
                                 PosterCard(
                                     title = s.title,
                                     image = s.logo,
-                                    caption = Txt.plural(s.episodes, "episódio", "episódios"),
+                                    // Séries de login mostram os episódios ao abrir; até lá, o ano.
+                                    caption = if (s.episodes > 0) Txt.plural(s.episodes, "episódio", "episódios") else s.year?.toString(),
                                     onClick = { navigator.open(Route.SeriesDetail(s.playlistId, s.seriesKey)) },
                                     onLongClick = { toggleFavorite(s.id, ContentKind.SERIES, s.playlistId) },
                                     modifier = memory.item(index),
@@ -265,9 +302,9 @@ fun GuideScreen() {
     val library = library()
     val navigator = navigator()
     val sources by library.epgSources.collectAsStateWithLifecycle()
-    var groupKey by rememberSaveable { mutableStateOf("*") }
     val groups by remember { library.groups(ContentKind.LIVE) }.collectAsStateWithLifecycle(null)
-    val items by remember(groupKey) { library.items(ContentKind.LIVE, filterOf(groupKey)) }.collectAsStateWithLifecycle(null)
+    val (groupKey, setGroup) = rememberGroupKey("guide", groups)
+    val items by remember(groupKey) { itemsFor(library, ContentKind.LIVE, groupKey) }.collectAsStateWithLifecycle(null)
     val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
     var focused by remember { mutableStateOf<MediaItem?>(null) }
     val memory = rememberFocusMemory("guide", groupKey)
@@ -275,12 +312,12 @@ fun GuideScreen() {
     Column(Modifier.fillMaxSize()) {
         ScreenTitle(Txt.GUIDE, subtitle = if (sources.isEmpty()) "Nenhum guia (XMLTV) adicionado. Adicione um em Listas." else null)
         Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, { groupKey = it }, width = 220)
+            GroupColumn(groups, groupKey, setGroup, width = 220)
             Spacer(Modifier.width(16.dp))
             val list = items
             when {
                 list == null -> Loading(Modifier.weight(1f))
-                list.isEmpty() -> EmptyState(Txt.EMPTY_GROUP, Modifier.weight(1f))
+                list.isEmpty() -> EmptyState(emptyText(), Modifier.weight(1f))
                 else -> {
                     LazyColumn(
                         Modifier.width(360.dp).fillMaxHeight(),

@@ -16,7 +16,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -41,8 +46,12 @@ import tv.tui.core.normalizeText
 import tv.tui.core.resolveEpgChannel
 import tv.tui.core.searchIn
 import tv.tui.core.toSearchable
+import tv.tui.core.RemoteKind
+import tv.tui.core.RemoteSeries
 import tv.tui.core.Xtream
+import tv.tui.core.XtreamApi
 import tv.tui.core.XtreamLogin
+import tv.tui.core.XtreamNoApiException
 import tv.tui.tuitv.data.db.AppDatabase
 import tv.tui.tuitv.data.db.EpgSourceEntity
 import tv.tui.tuitv.data.db.FavoriteEntity
@@ -100,6 +109,9 @@ class Library(
     private val importer = Importer(db)
     private val refreshLock = Mutex()
 
+    /** Logins consultados sob demanda (só em memória). */
+    val remote = RemoteCatalog(net, scope) { settingsStore.current.connectionTimeout }
+
     // ---------------------------------------------------------------- estado
 
     private val _jobs = MutableStateFlow<List<ImportJob>>(emptyList())
@@ -136,41 +148,184 @@ class Library(
     /** Muda quando o guia é atualizado, para as telas recarregarem a programação. */
     val epgVersion: Flow<Int> = epgIndex.map { it?.byId?.size ?: 0 }
 
+    // ---------------------------------------------------------------- logins sob demanda
+
+    /** Logins ativos consultados sob demanda. */
+    private val remotePlaylists: Flow<List<Playlist>> = playlists.filterNotNull()
+        .map { list -> list.filter { it.active && it.remote } }
+        .distinctUntilChanged()
+
+    /** Algum login sob demanda está ativo: telas abrem numa categoria em vez de "Todas". */
+    val hasRemote: Flow<Boolean> = remotePlaylists.map { it.isNotEmpty() }.distinctUntilChanged()
+
+    /** Logins conectando (categorias a caminho) e falhas de conexão/carregamento. */
+    val remoteConnecting: Flow<Boolean> = remote.connecting.map { it.isNotEmpty() }.distinctUntilChanged()
+    val remoteErrors: StateFlow<Map<String, ImportException>> get() = remote.errors
+
+    /**
+     * Conteúdo de logins: pede ao servidor (uma vez por sessão) e acompanha o cache.
+     * Emite null enquanto carrega; sem logins ativos, emite [empty] na hora.
+     */
+    private fun <T> remoteContent(empty: T, load: suspend (List<Playlist>) -> Unit, read: (List<Playlist>) -> T): Flow<T?> =
+        remotePlaylists.flatMapLatest { list ->
+            if (list.isEmpty()) {
+                flowOf<T?>(empty)
+            } else {
+                flow<T?> {
+                    emit(null)
+                    try {
+                        load(list)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // A falha fica em remoteErrors; o que já estiver carregado continua visível.
+                    }
+                    emitAll(remote.version.map { read(list) })
+                }
+            }
+        }
+
+    private fun remoteItems(kind: ContentKind, group: String?): Flow<List<MediaItem>?> {
+        val rk = RemoteKind.of(kind)
+        return remoteContent(emptyList(), { remote.load(it, rk, group) }) { list -> list.flatMap { remote.cached(it.id)?.items(rk, group).orEmpty() } }
+    }
+
+    private fun RemoteSeries.toCard(): SeriesCard {
+        val loaded = remote.cached(playlistId)?.episodes?.get(seriesKey)?.second?.size ?: 0
+        return SeriesCard(id, playlistId, seriesKey, title, logo, group, year, loaded)
+    }
+
+    private fun remotePlaylistOf(id: String): Playlist? = playlists.value?.firstOrNull { it.remote && it.active && id.startsWith("${it.id}:") }
+
     // ---------------------------------------------------------------- catálogo
 
     private fun Flow<List<ItemEntity>>.visible(): Flow<List<MediaItem>> = combine(this, restriction) { list, blocked ->
         list.asSequence().filter { blocked == null || !blocked(it.group, it.name) }.map { it.toItem() }.toList()
     }.flowOn(Dispatchers.Default)
 
-    fun groups(kind: ContentKind): Flow<List<GroupCount>> = combine(db.items().groups(kind.id), restriction) { rows, blocked ->
-        rows.filter { row -> blocked == null || !blocked(row.group, "") }
-            .map { GroupCount(it.group ?: "", it.count) }
-    }.flowOn(Dispatchers.Default)
-
-    fun items(kind: ContentKind, filter: GroupFilter): Flow<List<MediaItem>> = when (filter) {
-        GroupFilter.All -> db.items().byKind(kind.id)
-        GroupFilter.None -> db.items().withoutGroup(kind.id)
-        is GroupFilter.Named -> db.items().byGroup(kind.id, filter.name)
-    }.visible()
-
-    fun firstOfKind(kind: ContentKind, limit: Int): Flow<List<MediaItem>> = db.items().firstOfKind(kind.id, limit * 2).visible().map { it.take(limit) }
-
-    fun series(filter: GroupFilter): Flow<List<SeriesCard>> {
-        val source = db.items().series((filter as? GroupFilter.Named)?.name)
-        return combine(source, restriction) { rows, blocked ->
-            rows.asSequence()
-                .filter { filter !is GroupFilter.None || it.group == null }
-                .filter { blocked == null || !blocked(it.group, it.title) }
-                .map { it.toCard() }
-                .toList()
-        }.flowOn(Dispatchers.Default)
+    /**
+     * Categorias: as dos logins primeiro (na ordem do servidor, inclusive as ainda não carregadas,
+     * com a contagem do que já foi carregado), depois as das listas importadas.
+     */
+    fun groups(kind: ContentKind): Flow<List<GroupCount>> {
+        val rk = RemoteKind.of(kind)
+        val remoteNames = remoteContent(emptyList<GroupCount>(), { list -> list.forEach { remote.ensure(it) } }) { list ->
+            list.flatMap { p ->
+                val cache = remote.cached(p.id) ?: return@flatMap emptyList()
+                cache.categories[rk].orEmpty().map { c ->
+                    val count = if (rk == RemoteKind.SERIES) cache.series(c.name)?.size else cache.items(rk, c.name)?.size
+                    GroupCount(c.name, count ?: 0)
+                }
+            }
+        }
+        return combine(db.items().groups(kind.id), remoteNames, restriction) { rows, names, blocked ->
+            if (names == null) return@combine null
+            val merged = LinkedHashMap<String, Int>()
+            for (g in names) merged[g.name] = (merged[g.name] ?: 0) + g.count
+            for (row in rows) {
+                val name = row.group ?: ""
+                merged[name] = (merged[name] ?: 0) + row.count
+            }
+            merged.entries.filter { (name, _) -> blocked == null || !blocked(name.ifEmpty { null }, "") }.map { (name, count) -> GroupCount(name, count) }
+        }.filterNotNull().flowOn(Dispatchers.Default)
     }
 
-    fun episodes(playlistId: String, seriesKey: String): Flow<List<MediaItem>> = db.items().episodes(playlistId, seriesKey).visible()
+    fun items(kind: ContentKind, filter: GroupFilter): Flow<List<MediaItem>> {
+        val local = when (filter) {
+            GroupFilter.All -> db.items().byKind(kind.id)
+            GroupFilter.None -> db.items().withoutGroup(kind.id)
+            is GroupFilter.Named -> db.items().byGroup(kind.id, filter.name)
+        }.visible()
+        if (kind == ContentKind.SERIES || filter == GroupFilter.None) return local
+        return withRemote(local, remoteItems(kind, (filter as? GroupFilter.Named)?.name))
+    }
 
-    val hasContent: Flow<Boolean> = db.items().countActive().map { it > 0 }.distinctUntilChanged()
+    /** Junta o conteúdo local ao dos logins (aplicando o controle parental); espera o remoto carregar. */
+    private fun withRemote(local: Flow<List<MediaItem>>, remoteFlow: Flow<List<MediaItem>?>): Flow<List<MediaItem>> =
+        combine(local, remoteFlow, restriction) { l, r, blocked ->
+            r?.let { l + it.filter { item -> blocked == null || !blocked(item.group, item.name) } }
+        }.filterNotNull().flowOn(Dispatchers.Default)
 
-    suspend fun item(id: String): MediaItem? = withContext(Dispatchers.IO) { db.items().get(id)?.toItem() }
+    /** Primeiros itens de um tipo (tela inicial). Com login, os da primeira categoria do servidor. */
+    fun firstOfKind(kind: ContentKind, limit: Int): Flow<List<MediaItem>> {
+        val rk = RemoteKind.of(kind)
+        val firstGroup = { p: Playlist -> remote.cached(p.id)?.categories?.get(rk)?.firstOrNull()?.name }
+        val remoteFirst = remoteContent(
+            emptyList(),
+            { list -> list.forEach { p -> remote.ensure(p); firstGroup(p)?.let { remote.load(listOf(p), rk, it) } } },
+        ) { list -> list.flatMap { p -> firstGroup(p)?.let { remote.cached(p.id)?.items(rk, it) }.orEmpty().take(limit) } }
+        return withRemote(db.items().firstOfKind(kind.id, limit * 2).visible(), remoteFirst).map { it.take(limit) }
+    }
+
+    /** Primeiras séries (tela inicial). Com login, as da primeira categoria do servidor. */
+    fun firstSeries(limit: Int): Flow<List<SeriesCard>> {
+        val firstGroup = { p: Playlist -> remote.cached(p.id)?.categories?.get(RemoteKind.SERIES)?.firstOrNull()?.name }
+        val remoteFirst = remoteContent(
+            emptyList<RemoteSeries>(),
+            { list -> list.forEach { p -> remote.ensure(p); firstGroup(p)?.let { remote.load(listOf(p), RemoteKind.SERIES, it) } } },
+        ) { list -> list.flatMap { p -> firstGroup(p)?.let { remote.cached(p.id)?.series(it) }.orEmpty().take(limit) } }
+        return combineSeries(localSeries(GroupFilter.All), remoteFirst).map { it.take(limit) }
+    }
+
+    private fun localSeries(filter: GroupFilter): Flow<List<SeriesCard>> = db.items().series((filter as? GroupFilter.Named)?.name)
+        .map { rows -> rows.filter { filter !is GroupFilter.None || it.group == null }.map { it.toCard() } }
+
+    private fun combineSeries(local: Flow<List<SeriesCard>>, remoteFlow: Flow<List<RemoteSeries>?>): Flow<List<SeriesCard>> =
+        combine(local, remoteFlow, restriction) { l, r, blocked ->
+            r?.let { (l + it.map { s -> s.toCard() }).filter { card -> blocked == null || !blocked(card.group, card.title) } }
+        }.filterNotNull().flowOn(Dispatchers.Default)
+
+    fun series(filter: GroupFilter): Flow<List<SeriesCard>> {
+        if (filter == GroupFilter.None) return combineSeries(localSeries(filter), flowOf(emptyList()))
+        val group = (filter as? GroupFilter.Named)?.name
+        val remoteSeries = remoteContent(emptyList<RemoteSeries>(), { remote.load(it, RemoteKind.SERIES, group) }) { list ->
+            list.flatMap { remote.cached(it.id)?.series(group).orEmpty() }
+        }
+        return combineSeries(localSeries(filter), remoteSeries)
+    }
+
+    /** Episódios de uma série. De um login, pedidos ao servidor ao abrir a série. */
+    fun episodes(playlistId: String, seriesKey: String): Flow<List<MediaItem>> =
+        playlists.filterNotNull().map { list -> list.firstOrNull { it.id == playlistId } }.distinctUntilChanged().flatMapLatest { p ->
+            if (p == null || !p.remote) {
+                db.items().episodes(playlistId, seriesKey).visible()
+            } else {
+                val loaded = flow {
+                    try {
+                        remote.loadSeries(p, seriesKey)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // A falha fica em remoteErrors.
+                    }
+                    emitAll(remote.version.map { remote.cached(p.id)?.episodes?.get(seriesKey)?.second.orEmpty() })
+                }
+                withRemote(flowOf(emptyList()), loaded)
+            }
+        }
+
+    /** Série de um login (título, capa e sinopse), quando já carregada. */
+    fun remoteSeries(playlistId: String, seriesKey: String): RemoteSeries? {
+        val cache = remote.cached(playlistId) ?: return null
+        return cache.episodes[seriesKey]?.first ?: cache.loadedSeries().firstOrNull { it.seriesKey == seriesKey }
+    }
+
+    val hasContent: Flow<Boolean> = combine(db.items().countActive(), hasRemote) { count, remoteActive -> count > 0 || remoteActive }.distinctUntilChanged()
+
+    /**
+     * Item pelo id: do banco, do catálogo de um login já carregado ou, sem consultar o servidor,
+     * reconstruído a partir do id com o nome e a capa guardados no favorito/histórico.
+     */
+    suspend fun item(id: String): MediaItem? = withContext(Dispatchers.IO) {
+        db.items().get(id)?.toItem()?.let { return@withContext it }
+        val playlist = remotePlaylistOf(id) ?: return@withContext null
+        remote.cached(playlist.id)?.loadedItems()?.firstOrNull { it.id == id }?.let { return@withContext it }
+        val login = playlist.login ?: return@withContext null
+        val favorite = db.favorites().get(id)
+        val history = db.history().get(id)
+        val name = favorite?.name ?: history?.name ?: return@withContext null
+        XtreamApi.itemFromId(playlist.id, login, id, name, favorite?.logo ?: history?.logo, favorite?.group)
+    }
 
     /** Busca local sem acentos: o banco filtra pelo primeiro termo e a ordenação segue as regras da Web. */
     suspend fun search(query: String, limit: Int = 60): SearchResults = withContext(Dispatchers.Default) {
@@ -187,10 +342,24 @@ class Library(
             val id = tv.tui.core.seriesId(item.playlistId, info.seriesKey)
             if (!series.containsKey(id)) series[id] = SeriesCard(id, item.playlistId, info.seriesKey, info.title, item.logo, item.group, item.year, 0)
         }
+        // Logins não têm busca no servidor: o catálogo de cada tipo é pedido uma vez por sessão (só em memória).
+        val logins = remotePlaylists.first()
+        val remoteLive = ArrayList<MediaItem>()
+        val remoteMovies = ArrayList<MediaItem>()
+        val remoteSeries = ArrayList<RemoteSeries>()
+        if (logins.isNotEmpty()) {
+            for (kind in RemoteKind.entries) runCatching { remote.load(logins, kind, null) }
+            for (p in logins) {
+                val cache = remote.cached(p.id) ?: continue
+                remoteLive += cache.items(RemoteKind.LIVE, null).orEmpty().filter { blocked == null || !blocked(it.group, it.name) }
+                remoteMovies += cache.items(RemoteKind.MOVIE, null).orEmpty().filter { blocked == null || !blocked(it.group, it.name) }
+                remoteSeries += cache.series(null).orEmpty().filter { blocked == null || !blocked(it.group, it.title) }
+            }
+        }
         SearchResults(
-            live = ranked.filter { it.kind == ContentKind.LIVE }.take(limit),
-            movies = ranked.filter { it.kind == ContentKind.MOVIE }.take(limit),
-            series = series.values.take(limit),
+            live = (ranked.filter { it.kind == ContentKind.LIVE } + searchIn(toSearchable(remoteLive) { it.name }, query, limit)).take(limit),
+            movies = (ranked.filter { it.kind == ContentKind.MOVIE } + searchIn(toSearchable(remoteMovies) { it.name }, query, limit)).take(limit),
+            series = (series.values + searchIn(toSearchable(remoteSeries) { it.title }, query, limit).map { it.toCard() }).take(limit),
         )
     }
 
@@ -214,10 +383,23 @@ class Library(
 
     // ---------------------------------------------------------------- favoritos e histórico
 
-    val favorites: Flow<List<FavoriteEntry>> = combine(db.favorites().observe(), restriction) { favs, blocked -> favs to blocked }
-        .mapLatest { (favs, blocked) ->
+    val favorites: Flow<List<FavoriteEntry>> = combine(db.favorites().observe(), restriction, playlists.filterNotNull()) { favs, blocked, lists -> Triple(favs, blocked, lists) }
+        .mapLatest { (favs, blocked, lists) ->
             val items = db.items().getMany(favs.filter { !it.id.contains(":s:") }.map { it.id }).associateBy { it.id }
+            val logins = lists.filter { it.active && it.remote }.associateBy { it.id }
             favs.mapNotNull { fav ->
+                val login = logins[fav.playlistId]
+                if (login != null) {
+                    // Login sob demanda: o favorito se mostra com o nome e a capa guardados.
+                    val name = fav.name ?: return@mapNotNull null
+                    if (blocked != null && blocked(fav.group, name)) return@mapNotNull null
+                    return@mapNotNull if (fav.id.contains(":s:")) {
+                        FavoriteEntry.Series(fav, SeriesCard(fav.id, fav.playlistId, fav.id.substringAfter(":s:"), name, fav.logo, fav.group, fav.year, 0))
+                    } else {
+                        val item = login.login?.let { XtreamApi.itemFromId(login.id, it, fav.id, name, fav.logo, fav.group) } ?: return@mapNotNull null
+                        FavoriteEntry.Item(fav, item)
+                    }
+                }
                 if (fav.id.contains(":s:")) {
                     val seriesKey = fav.id.substringAfter(":s:")
                     val first = db.items().forSeriesFirst(fav.playlistId, seriesKey) ?: return@mapNotNull null
@@ -237,15 +419,30 @@ class Library(
     /** Inverte o favorito e devolve o novo estado. */
     suspend fun toggleFavorite(id: String, kind: ContentKind, playlistId: String): Boolean = withContext(Dispatchers.IO) {
         val exists = db.favorites().isFavorite(id).first()
-        if (exists) db.favorites().delete(id) else db.favorites().upsert(FavoriteEntity(id, kind.id, playlistId, System.currentTimeMillis()))
+        if (exists) db.favorites().delete(id) else db.favorites().upsert(favoriteOf(id, kind, playlistId))
         !exists
     }
 
     fun toggleFavorite(id: String, kind: ContentKind, playlistId: String, favorite: Boolean) {
         scope.launch(Dispatchers.IO) {
-            if (favorite) db.favorites().upsert(FavoriteEntity(id, kind.id, playlistId, System.currentTimeMillis()))
+            if (favorite) db.favorites().upsert(favoriteOf(id, kind, playlistId))
             else db.favorites().delete(id)
         }
+    }
+
+    /** Favorito com nome e capa: itens de logins não ficam no aparelho. */
+    private suspend fun favoriteOf(id: String, kind: ContentKind, playlistId: String): FavoriteEntity {
+        val now = System.currentTimeMillis()
+        if (id.contains(":s:")) {
+            val seriesKey = id.substringAfter(":s:")
+            remoteSeries(playlistId, seriesKey)?.let { return FavoriteEntity(id, kind.id, playlistId, now, it.title, it.logo, it.group, it.year) }
+            db.items().forSeriesFirst(playlistId, seriesKey)?.let {
+                return FavoriteEntity(id, kind.id, playlistId, now, it.seriesTitle ?: it.name, it.logo, it.group, it.year)
+            }
+        } else {
+            item(id)?.let { return FavoriteEntity(id, kind.id, playlistId, now, it.name, it.logo, it.group, it.year) }
+        }
+        return FavoriteEntity(id, kind.id, playlistId, now)
     }
 
     /** Histórico visível (itens de categorias bloqueadas ficam ocultos). */
@@ -369,7 +566,41 @@ class Library(
             urlSealed = SecureText.seal(checked), fileName = null, active = true, createdAt = now, updatedAt = now,
             itemCount = 0, live = 0, movie = 0, series = 0, epgUrlSealed = null, skipped = 0,
         )
+        // Login Xtream: nada é importado; o conteúdo é consultado no servidor quando a tela precisa.
+        Xtream.parse(checked)?.let { login -> connectOrNull(login)?.let { return saveRemote(entity, login, it, isNew = true) } }
         return importPlaylistJob(entity, isNew = true) { net.open(checked, s.connectionTimeout, Limits.MAX_PLAYLIST_BYTES) }
+    }
+
+    /** Conecta à API do login; null quando o servidor não a oferece (segue com a lista M3U). */
+    private suspend fun connectOrNull(login: XtreamLogin): RemoteCatalog.Connection? = try {
+        remote.connect(login)
+    } catch (_: XtreamNoApiException) {
+        null
+    }
+
+    /** Grava a lista como login consultado sob demanda (as contagens passam a ser de categorias). */
+    private suspend fun saveRemote(entity: PlaylistEntity, login: XtreamLogin, connection: RemoteCatalog.Connection, isNew: Boolean): Playlist {
+        val categories = connection.categories
+        val updated = entity.copy(
+            provider = PROVIDER_XTREAM,
+            expiresAt = connection.account.expiresAt ?: 0,
+            updatedAt = System.currentTimeMillis(),
+            itemCount = 0,
+            live = categories[RemoteKind.LIVE].orEmpty().size,
+            movie = categories[RemoteKind.MOVIE].orEmpty().size,
+            series = categories[RemoteKind.SERIES].orEmpty().size,
+            skipped = 0,
+            failedAt = 0,
+        )
+        withContext(Dispatchers.IO) {
+            // Lista antiga importada do login: os itens guardados saem (o catálogo passa a vir do servidor).
+            if (!isNew) db.items().deleteForPlaylist(entity.id)
+            db.playlists().upsert(updated)
+            remote.forget(entity.id)
+            remote.seed(entity.id, login, connection)
+            if (updated.epgUrlSealed == null) addEpgFromPlaylistHeader(updated.name, Xtream.epgUrl(login))
+        }
+        return updated.toModel()
     }
 
     /**
@@ -412,12 +643,28 @@ class Library(
         return importPlaylistJob(entity, isNew = true) { net.openUri(uri, Limits.MAX_PLAYLIST_BYTES) }
     }
 
-    /** Baixa novamente uma lista adicionada por endereço. */
+    /**
+     * Baixa novamente uma lista adicionada por endereço. Um login sob demanda é reconectado (conta e categorias);
+     * uma lista antiga importada de um login passa a ser consultada sob demanda.
+     */
     suspend fun refreshPlaylist(id: String): Playlist {
         val entity = withContext(Dispatchers.IO) { db.playlists().get(id) } ?: throw ImportException(ImportError.EMPTY)
         val url = SecureText.open(entity.urlSealed) ?: throw ImportException(ImportError.URL_EMPTY)
         val s = settingsStore.current
         return try {
+            val login = Xtream.parse(url)
+            if (login != null) {
+                val connection = if (entity.provider == PROVIDER_XTREAM) {
+                    try {
+                        remote.connect(login)
+                    } catch (_: XtreamNoApiException) {
+                        throw ImportException(ImportError.HTTP, "404")
+                    }
+                } else {
+                    connectOrNull(login)
+                }
+                if (connection != null) return saveRemote(entity, login, connection, isNew = entity.provider == PROVIDER_XTREAM)
+            }
             importPlaylistJob(entity, isNew = false) { net.open(url, s.connectionTimeout, Limits.MAX_PLAYLIST_BYTES) }
         } catch (e: ImportException) {
             withContext(Dispatchers.IO) { db.playlists().get(id)?.let { db.playlists().upsert(it.copy(failedAt = System.currentTimeMillis())) } }
@@ -437,6 +684,7 @@ class Library(
     }
 
     suspend fun deletePlaylist(id: String) = withContext(Dispatchers.IO) {
+        remote.forget(id)
         db.withTransaction {
             db.items().deleteForPlaylist(id)
             db.favorites().deleteForPlaylist(id)
@@ -530,7 +778,8 @@ class Library(
             fun due(updatedAt: Long, failedAt: Long) = now - updatedAt > maxAge && now - failedAt > RETRY_AFTER_FAILURE
             val playlists = withContext(Dispatchers.IO) { db.playlists().all() }
             for (p in playlists) {
-                if (p.source == "url" && p.active && due(p.updatedAt, p.failedAt)) runCatching { refreshPlaylist(p.id) }
+                // Logins sob demanda não têm conteúdo a baixar.
+                if (p.source == "url" && p.provider != PROVIDER_XTREAM && p.active && due(p.updatedAt, p.failedAt)) runCatching { refreshPlaylist(p.id) }
             }
             val sources = withContext(Dispatchers.IO) { db.epg().sources() }
             for (s in sources) {

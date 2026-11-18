@@ -31,10 +31,17 @@ data class Playlist(
     val epgUrl: String?,
     val skipped: Int,
     val failedAt: Long,
+    val provider: String? = null,
+    val expiresAt: Long = 0,
 ) {
     /** Login Xtream (host, usuário e senha) quando a lista foi adicionada por login. */
     val login: XtreamLogin? get() = url?.let(Xtream::parse)
+
+    /** Login consultado sob demanda: nada do catálogo fica no aparelho (live/movie/series = categorias). */
+    val remote: Boolean get() = provider == PROVIDER_XTREAM
 }
+
+const val PROVIDER_XTREAM = "xtream"
 
 data class EpgSource(
     val id: String,
@@ -64,7 +71,7 @@ fun kindOf(id: String): ContentKind = ContentKind.entries.firstOrNull { it.id ==
 
 fun PlaylistEntity.toModel() = Playlist(
     id, name, source == "file", SecureText.open(urlSealed), fileName, active, createdAt, updatedAt,
-    itemCount, live, movie, series, SecureText.open(epgUrlSealed), skipped, failedAt,
+    itemCount, live, movie, series, SecureText.open(epgUrlSealed), skipped, failedAt, provider, expiresAt,
 )
 
 fun EpgSourceEntity.toModel() = EpgSource(id, name, source == "file", SecureText.open(urlSealed), fileName, updatedAt, channelCount, programmeCount, failedAt)

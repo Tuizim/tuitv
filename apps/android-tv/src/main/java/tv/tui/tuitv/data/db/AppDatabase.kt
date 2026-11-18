@@ -1,6 +1,7 @@
 package tv.tui.tuitv.data.db
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -15,8 +16,10 @@ import androidx.room.RoomDatabase
         EpgChannelEntity::class,
         ProgrammeEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
+    // 2: lista consultada sob demanda (provider, expiresAt) e nome/capa nos favoritos.
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun playlists(): PlaylistDao

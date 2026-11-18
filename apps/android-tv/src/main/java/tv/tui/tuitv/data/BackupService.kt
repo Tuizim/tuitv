@@ -40,7 +40,7 @@ class BackupService(private val library: Library) {
         }
         val data = JSONObject()
             .put("playlists", playlists)
-            .put("favorites", JSONArray(db.favorites().all().map { JSONObject().put("id", it.id).put("kind", it.kind).put("playlistId", it.playlistId).put("addedAt", it.addedAt) }))
+            .put("favorites", JSONArray(db.favorites().all().map(::favoriteJson)))
             .put("history", JSONArray(db.history().all().map(::historyJson)))
             .put("epgSources", JSONArray(db.epg().sources().map(::epgJson)))
             .put("settings", library.settingsStore.current.toJson(includePin = false))
@@ -67,14 +67,13 @@ class BackupService(private val library: Library) {
                 if (items != null) {
                     db.items().deleteForPlaylist(entity.id)
                     db.items().insertAll(List(items.length()) { itemFromJson(items.getJSONObject(it)).toEntity(gen) })
-                } else if (entity.source == "url") {
+                } else if (entity.source == "url" && entity.provider != PROVIDER_XTREAM) {
+                    // Login consultado sob demanda não tem conteúdo a baixar: conecta ao abrir.
                     toRefresh.add(entity.id)
                 }
             }
             db.favorites().upsertAll(
-                List(favorites.length()) { favorites.getJSONObject(it) }.map {
-                    FavoriteEntity(it.getString("id"), it.getString("kind"), it.getString("playlistId"), it.optLong("addedAt"))
-                },
+                List(favorites.length()) { favorites.getJSONObject(it) }.map(::favoriteFromJson),
             )
             db.history().upsertAll(List(history.length()) { historyFromJson(history.getJSONObject(it)) })
             for (i in 0 until epgSources.length()) {
@@ -119,10 +118,24 @@ class BackupService(private val library: Library) {
         .apply {
             SecureText.open(p.epgUrlSealed)?.let { put("epgUrl", it) }
             put("skipped", p.skipped)
+            if (p.provider == PROVIDER_XTREAM) {
+                // Mesmo formato da Web (Playlist.account): no login sob demanda, as contagens são de categorias.
+                put("provider", PROVIDER_XTREAM)
+                put("itemCount", 0)
+                put("counts", JSONObject().put("live", 0).put("movie", 0).put("series", 0))
+                put(
+                    "account",
+                    JSONObject()
+                        .put("categories", JSONObject().put("live", p.live).put("movie", p.movie).put("series", p.series))
+                        .apply { if (p.expiresAt > 0) put("expiresAt", p.expiresAt) },
+                )
+            }
         }
 
     private fun playlistEntity(p: JSONObject): PlaylistEntity {
-        val counts = p.optJSONObject("counts")
+        val remote = p.optString("provider") == PROVIDER_XTREAM
+        val account = p.optJSONObject("account")
+        val counts = if (remote) account?.optJSONObject("categories") else p.optJSONObject("counts")
         return PlaylistEntity(
             id = p.getString("id"),
             name = p.optString("name", "Lista"),
@@ -139,6 +152,40 @@ class BackupService(private val library: Library) {
             series = counts?.optInt("series") ?: 0,
             epgUrlSealed = p.optStringOrNull("epgUrl")?.let(SecureText::seal),
             skipped = p.optInt("skipped"),
+            provider = if (remote) PROVIDER_XTREAM else null,
+            expiresAt = account?.optLong("expiresAt") ?: 0,
+        )
+    }
+
+    private fun favoriteJson(f: FavoriteEntity) = JSONObject()
+        .put("id", f.id)
+        .put("kind", f.kind)
+        .put("playlistId", f.playlistId)
+        .put("addedAt", f.addedAt)
+        .apply {
+            if (f.name != null) {
+                put(
+                    "snapshot",
+                    JSONObject().put("name", f.name).apply {
+                        f.logo?.let { put("logo", it) }
+                        f.group?.let { put("group", it) }
+                        f.year?.let { put("year", it) }
+                    },
+                )
+            }
+        }
+
+    private fun favoriteFromJson(o: JSONObject): FavoriteEntity {
+        val snapshot = o.optJSONObject("snapshot")
+        return FavoriteEntity(
+            id = o.getString("id"),
+            kind = o.getString("kind"),
+            playlistId = o.getString("playlistId"),
+            addedAt = o.optLong("addedAt"),
+            name = snapshot?.optStringOrNull("name"),
+            logo = snapshot?.optStringOrNull("logo"),
+            group = snapshot?.optStringOrNull("group"),
+            year = snapshot?.takeIf { it.has("year") }?.optInt("year"),
         )
     }
 

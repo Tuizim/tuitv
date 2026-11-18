@@ -61,6 +61,7 @@ import tv.tui.tuitv.ui.components.ActionButton
 import tv.tui.tuitv.ui.components.ChannelCard
 import tv.tui.tuitv.ui.components.ConfirmDialog
 import tv.tui.tuitv.ui.components.EmptyState
+import tv.tui.tuitv.ui.components.Loading
 import tv.tui.tuitv.ui.components.ListRow
 import tv.tui.tuitv.ui.components.Muted
 import tv.tui.tuitv.ui.components.PosterCard
@@ -132,7 +133,8 @@ fun HomeScreen() {
     val favorites by library.favorites.collectAsStateWithLifecycle(emptyList())
     val live by remember { library.firstOfKind(ContentKind.LIVE, ROW) }.collectAsStateWithLifecycle(emptyList())
     val movies by remember { library.firstOfKind(ContentKind.MOVIE, ROW) }.collectAsStateWithLifecycle(emptyList())
-    val series by remember { library.series(tv.tui.tuitv.data.GroupFilter.All) }.collectAsStateWithLifecycle(emptyList())
+    // Com login, a fileira traz a primeira categoria do servidor (não o catálogo inteiro).
+    val series by remember { library.firstSeries(ROW) }.collectAsStateWithLifecycle(emptyList())
     val hasContent by library.hasContent.collectAsStateWithLifecycle(true)
 
     val resume = history.filter { it.resumable() }.take(ROW)
@@ -362,8 +364,13 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
     var seasonIndex by rememberSaveable(id) { mutableIntStateOf(-1) }
     val playFocus = remember { FocusRequester() }
     val memory = rememberFocusMemory(id, seasonIndex)
+    val errors by library.remoteErrors.collectAsStateWithLifecycle()
     val series = group ?: run {
-        if (episodes?.isEmpty() == true) EmptyState(Txt.EMPTY_GROUP)
+        when {
+            // Série de login: episódios a caminho do servidor.
+            episodes == null -> Loading()
+            episodes?.isEmpty() == true -> EmptyState(errors[playlistId]?.let(Txt::importError) ?: Txt.EMPTY_GROUP)
+        }
         return
     }
     val byItem = history.associateBy { it.itemId }

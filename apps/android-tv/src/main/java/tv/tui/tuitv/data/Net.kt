@@ -27,7 +27,7 @@ import tv.tui.tuitv.BuildConfig
 
 /** Mesmos códigos de erro da Web (apps/web/src/lib/net.ts), mais os específicos do Android. */
 enum class ImportError {
-    URL_EMPTY, URL_MALFORMED, URL_SCHEME, URL_PRIVATE, LOGIN_MISSING,
+    URL_EMPTY, URL_MALFORMED, URL_SCHEME, URL_PRIVATE, LOGIN_MISSING, LOGIN_INVALID, ACCOUNT_INACTIVE,
     OFFLINE, NETWORK, TIMEOUT, HTTP, TOO_LARGE,
     NOT_M3U, HLS_MANIFEST, EMPTY, NOT_XMLTV, NOT_BACKUP, STORAGE, FILE,
 }

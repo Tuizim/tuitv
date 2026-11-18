@@ -16,8 +16,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import java.util.Collections
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okio.Buffer
 import org.json.JSONObject
 import org.junit.After
@@ -28,6 +32,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import tv.tui.core.Backup
 import tv.tui.core.ContentKind
 import tv.tui.core.GroupCount
 import tv.tui.core.Parental
@@ -135,14 +140,19 @@ class DataLayerTest {
     }
 
     @Test
-    fun `lista por login monta get php, adiciona o guia e permite trocar a senha`() = runBlocking {
+    fun `login sem a API do servidor importa get php, adiciona o guia e permite trocar a senha`() = runBlocking {
         val m3u = "#EXTM3U\n#EXTINF:-1 tvg-id=\"um.br\" group-title=\"Abertos\",Canal Um\nhttp://x.example/live/joao/s/1.ts\n"
         val xml = "<tv><channel id=\"um.br\"><display-name>Canal Um</display-name></channel></tv>"
+        val noApi = MockResponse.Builder().code(404).build()
+        server.enqueue(noApi)
         server.enqueue(MockResponse.Builder().body(m3u).build())
         server.enqueue(MockResponse.Builder().body(xml).build())
         val host = "${server.hostName}:${server.port}/"
 
         val playlist = library.addPlaylistLogin("", host, " joão ", "s&nha")
+        // Primeiro a API do login (player_api.php); sem ela, a lista M3U do mesmo login é importada.
+        assertTrue(server.takeRequest().target.startsWith("/player_api.php?username=jo%C3%A3o&password=s%26nha"))
+        assertFalse(playlist.remote)
         assertEquals(1, playlist.itemCount)
         assertEquals(server.hostName, playlist.name)
         assertEquals("/get.php?username=jo%C3%A3o&password=s%26nha&type=m3u_plus&output=ts", server.takeRequest().target)
@@ -157,8 +167,10 @@ class DataLayerTest {
         // Senha nova do provedor: mesma lista, favoritos mantidos.
         val item = library.items(ContentKind.LIVE, GroupFilter.All).first().single()
         library.toggleFavorite(item.id, ContentKind.LIVE, playlist.id)
+        server.enqueue(noApi)
         server.enqueue(MockResponse.Builder().body(m3u).build())
         val changed = library.changePlaylistSource(playlist.id, login = Triple(host, "joão", "nova"))
+        assertTrue(server.takeRequest().target.startsWith("/player_api.php"))
         assertEquals(playlist.id, changed.id)
         assertEquals("/get.php?username=jo%C3%A3o&password=nova&type=m3u_plus&output=ts", server.takeRequest().target)
         assertTrue(library.isFavorite(item.id).first())
@@ -280,5 +292,174 @@ class DataLayerTest {
         assertFalse(entry.completed)
         library.recordPlayback(movie, 5800, 6000)
         assertNotNull(eventually { library.historyEntry(movie.id)?.takeIf { it.completed } })
+    }
+
+    /**
+     * Provedor Xtream simulado (usuário "joão", senha "s&nha") — mesmos dados do servidor de apoio da Web
+     * (apps/web/e2e/fixture-server.mjs). [calls] registra as ações pedidas ao player_api.php.
+     */
+    private fun xtreamServer(): MutableList<String> {
+        val calls = Collections.synchronizedList(ArrayList<String>())
+        val live = """[{"stream_id":11,"name":"Canal Um HD","epg_channel_id":"canal.um","category_id":"1"},{"stream_id":12,"name":"Canal Dois","category_id":"1"},{"stream_id":13,"name":"Canal Um SD","category_id":"1"},{"stream_id":21,"name":"Esporte 1","category_id":"2"},{"stream_id":31,"name":"Notícias 24h","category_id":"3"}]"""
+        val vod = """[{"stream_id":501,"name":"Corrida Final (2022)","container_extension":"mp4","category_id":"10"},{"stream_id":502,"name":"Drama na Serra","container_extension":"mkv","category_id":"11"}]"""
+        val series = """[{"series_id":77,"name":"Vale Escuro","releaseDate":"2021-03-01","category_id":"20","plot":"Segredos."}]"""
+        val info = """{"info":{"name":"Vale Escuro"},"episodes":{"1":[{"id":"7001","episode_num":1,"title":"Chegada","container_extension":"mp4","season":1},{"id":"7002","episode_num":2,"title":"Neblina","container_extension":"mp4","season":1}],"2":[{"id":"7101","episode_num":1,"title":"Retorno","container_extension":"mkv","season":2}]}}"""
+        fun byCategory(json: String, category: String?): String {
+            if (category == null) return json
+            val array = org.json.JSONArray(json)
+            return org.json.JSONArray((0 until array.length()).map { array.getJSONObject(it) }.filter { it.getString("category_id") == category }).toString()
+        }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val url = "http://x${request.target}".toHttpUrl()
+                val ok = { body: String -> MockResponse.Builder().body(body).build() }
+                if (url.encodedPath == "/xmltv.php") return ok("<tv><channel id=\"canal.um\"><display-name>Canal Um HD</display-name></channel></tv>")
+                if (url.encodedPath != "/player_api.php") return MockResponse.Builder().code(404).build()
+                if (url.queryParameter("username") != "joão" || url.queryParameter("password") != "s&nha") return ok("""{"user_info":{"auth":0}}""")
+                val action = url.queryParameter("action") ?: ""
+                val category = url.queryParameter("category_id")
+                calls += if (category != null) "$action:$category" else action.ifEmpty { "login" }
+                return ok(
+                    when (action) {
+                        "" -> """{"user_info":{"auth":1,"status":"Active","exp_date":"1893499200","max_connections":"2"}}"""
+                        "get_live_categories" -> """[{"category_id":"1","category_name":"Abertos"},{"category_id":"2","category_name":"Esportes"},{"category_id":"3","category_name":"Notícias"}]"""
+                        "get_vod_categories" -> """[{"category_id":"10","category_name":"Filmes | Ação"},{"category_id":"11","category_name":"Filmes | Drama"}]"""
+                        "get_series_categories" -> """[{"category_id":"20","category_name":"Séries | Drama"}]"""
+                        "get_live_streams" -> byCategory(live, category)
+                        "get_vod_streams" -> byCategory(vod, category)
+                        "get_series" -> byCategory(series, category)
+                        "get_series_info" -> info
+                        else -> "[]"
+                    },
+                )
+            }
+        }
+        return calls
+    }
+
+    @Test
+    fun `login sob demanda - conecta sem baixar a lista e carrega cada categoria ao abrir`() = runBlocking {
+        val calls = xtreamServer()
+        val host = "${server.hostName}:${server.port}"
+        val playlist = library.addPlaylistLogin("", host, "joão", "s&nha")
+        assertTrue(playlist.remote)
+        assertEquals(0, playlist.itemCount)
+        assertEquals(listOf(3, 2, 1), listOf(playlist.live, playlist.movie, playlist.series))
+        assertEquals(1893499200000L, playlist.expiresAt)
+        // Só a conta e as categorias foram pedidas.
+        assertEquals(listOf("get_live_categories", "get_series_categories", "get_vod_categories", "login"), calls.sorted())
+
+        // Categorias do servidor aparecem antes de carregar o conteúdo delas.
+        val groups = eventually { library.groups(ContentKind.LIVE).first().takeIf { it.isNotEmpty() } }
+        assertEquals(listOf("Abertos", "Esportes", "Notícias"), groups.map { it.name })
+
+        val abertos = eventually { library.items(ContentKind.LIVE, GroupFilter.Named("Abertos")).first().takeIf { it.isNotEmpty() } }
+        assertEquals(listOf("Canal Um HD", "Canal Dois", "Canal Um SD"), abertos.map { it.name })
+        assertEquals("http://$host/live/jo%C3%A3o/s%26nha/11.ts", abertos[0].url)
+        assertTrue("get_live_streams:1" in calls)
+        assertFalse("get_live_streams" in calls)
+        // Nada do catálogo foi gravado no aparelho.
+        assertTrue(db.items().forPlaylist(playlist.id).isEmpty())
+        assertEquals(GroupCount("Abertos", 3), library.groups(ContentKind.LIVE).first().first())
+
+        // Série: os episódios vêm ao abrir a série.
+        val vale = eventually { library.series(GroupFilter.Named("Séries | Drama")).first().takeIf { it.isNotEmpty() } }.single()
+        assertEquals("x77", vale.seriesKey)
+        val episodes = eventually { library.episodes(playlist.id, vale.seriesKey).first().takeIf { it.isNotEmpty() } }
+        assertEquals(listOf("Chegada", "Neblina", "Retorno"), episodes.map { it.name })
+        assertTrue("get_series_info" in calls)
+
+        // Favoritos guardam nome e capa.
+        val movie = eventually { library.items(ContentKind.MOVIE, GroupFilter.Named("Filmes | Ação")).first().takeIf { it.isNotEmpty() } }.single()
+        assertTrue(library.toggleFavorite(movie.id, ContentKind.MOVIE, playlist.id))
+        assertTrue(library.toggleFavorite(vale.id, ContentKind.SERIES, playlist.id))
+        assertEquals("Corrida Final (2022)", db.favorites().get(movie.id)!!.name)
+        assertEquals("Vale Escuro", db.favorites().get(vale.id)!!.name)
+
+        // Busca: o catálogo de cada tipo é pedido uma vez e filtrado no aparelho.
+        assertEquals(listOf("Drama na Serra"), library.search("serra").movies.map { it.name })
+        assertTrue(calls.containsAll(listOf("get_live_streams", "get_vod_streams", "get_series")))
+
+        // O guia do mesmo login é adicionado.
+        eventually { library.epgSources.value.firstOrNull { it.url?.contains("xmltv.php") == true } }
+
+        // Nova sessão (mesmo banco): favoritos e item do histórico aparecem sem pedir o catálogo.
+        library.recordPlayback(abertos[1], 0, 0)
+        eventually { library.historyEntry(abertos[1].id) }
+        val session = Library(db, library.settingsStore, Net(context, Net.createClient()), scope)
+        calls.clear()
+        val favorites = eventually { session.favorites.first().takeIf { it.size == 2 } }
+        val favoriteMovie = favorites.filterIsInstance<tv.tui.tuitv.data.FavoriteEntry.Item>().single().item
+        assertEquals("Corrida Final (2022)", favoriteMovie.name)
+        assertEquals("http://$host/movie/jo%C3%A3o/s%26nha/501.mp4", favoriteMovie.url)
+        assertEquals("Vale Escuro", favorites.filterIsInstance<tv.tui.tuitv.data.FavoriteEntry.Series>().single().series.title)
+        assertEquals("Canal Dois", session.item(abertos[1].id)!!.name)
+        assertTrue(calls.none { it.startsWith("get_") && !it.endsWith("_categories") })
+    }
+
+    @Test
+    fun `lista antiga importada de um login passa a ser consultada sob demanda ao atualizar`() = runBlocking {
+        server.enqueue(MockResponse.Builder().code(404).build())
+        server.enqueue(MockResponse.Builder().body("#EXTM3U\n#EXTINF:-1 group-title=\"G\",Canal A\nhttp://x.example/a\n").build())
+        val host = "${server.hostName}:${server.port}"
+        val old = library.addPlaylistLogin("", host, "joão", "s&nha")
+        assertEquals(1, old.itemCount)
+        server.takeRequest()
+        server.takeRequest()
+        // O servidor passa a oferecer a API: "Atualizar" converte e libera o armazenamento.
+        xtreamServer()
+        val updated = library.refreshPlaylist(old.id)
+        assertTrue(updated.remote)
+        assertEquals(old.id, updated.id)
+        assertTrue(db.items().forPlaylist(old.id).isEmpty())
+    }
+
+    @Test
+    fun `backup com login sob demanda - restaura sem baixar a lista e exporta no formato da Web`() = runBlocking {
+        val calls = xtreamServer()
+        val url = tv.tui.core.Xtream.playlistUrl(tv.tui.core.XtreamLogin("http://${server.hostName}:${server.port}", "joão", "s&nha"))
+        val data = JSONObject()
+            .put(
+                "playlists",
+                org.json.JSONArray().put(
+                    JSONObject().put(
+                        "playlist",
+                        JSONObject().put("id", "pl1").put("name", "Provedor").put("source", "url").put("url", url).put("active", true)
+                            .put("createdAt", 1).put("updatedAt", 1).put("itemCount", 0)
+                            .put("counts", JSONObject().put("live", 0).put("movie", 0).put("series", 0))
+                            .put("provider", "xtream")
+                            .put("account", JSONObject().put("expiresAt", 1893499200000L).put("categories", JSONObject().put("live", 3).put("movie", 2).put("series", 1))),
+                    ),
+                ),
+            )
+            .put(
+                "favorites",
+                org.json.JSONArray().put(
+                    JSONObject().put("id", "pl1:x:m:502.mkv").put("kind", "movie").put("playlistId", "pl1").put("addedAt", 5)
+                        .put("snapshot", JSONObject().put("name", "Drama na Serra").put("group", "Filmes | Drama")),
+                ),
+            )
+            .put("history", org.json.JSONArray())
+            .put("epgSources", org.json.JSONArray())
+            .put("settings", JSONObject())
+        val backup = BackupService(library)
+        backup.restore(tv.tui.core.Backup.create(data, "web"), null)
+
+        val playlist = library.playlists.first { it?.isNotEmpty() == true }!!.single()
+        assertTrue(playlist.remote)
+        assertEquals(listOf(3, 2, 1), listOf(playlist.live, playlist.movie, playlist.series))
+        val favorite = eventually { library.favorites.first().singleOrNull() } as tv.tui.tuitv.data.FavoriteEntry.Item
+        assertEquals("Drama na Serra", favorite.item.name)
+        assertTrue(favorite.item.url.endsWith("/movie/jo%C3%A3o/s%26nha/502.mkv"))
+        // Nenhuma lista M3U foi baixada.
+        delay(300)
+        assertTrue(calls.none { it.startsWith("get_") && !it.endsWith("_categories") })
+
+        val exported = Backup.open(backup.export(null))
+        val p = exported.getJSONArray("playlists").getJSONObject(0).getJSONObject("playlist")
+        assertEquals("xtream", p.getString("provider"))
+        assertEquals(3, p.getJSONObject("account").getJSONObject("categories").getInt("live"))
+        assertEquals(0, p.getInt("itemCount"))
+        assertEquals("Drama na Serra", exported.getJSONArray("favorites").getJSONObject(0).getJSONObject("snapshot").getString("name"))
     }
 }

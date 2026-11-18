@@ -29,6 +29,13 @@ data class PlaylistEntity(
     val skipped: Int,
     /** Última tentativa de atualização automática que falhou (ms), para não repetir a cada abertura. */
     val failedAt: Long = 0,
+    /**
+     * null/"m3u": lista importada e guardada no aparelho; "xtream": login consultado sob demanda no servidor
+     * (nada do catálogo é guardado; live/movie/series contam as categorias do servidor).
+     */
+    val provider: String? = null,
+    /** Vencimento da assinatura informado pelo servidor (ms), 0 se desconhecido. */
+    @ColumnInfo(defaultValue = "0") val expiresAt: Long = 0,
 )
 
 @Entity(
@@ -68,6 +75,11 @@ data class FavoriteEntity(
     val kind: String,
     val playlistId: String,
     val addedAt: Long,
+    /** Nome e capa ao favoritar: itens de logins não ficam no aparelho e o favorito precisa se mostrar sozinho. */
+    val name: String? = null,
+    val logo: String? = null,
+    @ColumnInfo(name = "grp") val group: String? = null,
+    val year: Int? = null,
 )
 
 @Entity(tableName = "history", indices = [Index("playedAt")])

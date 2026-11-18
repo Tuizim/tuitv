@@ -23,7 +23,7 @@ Listas podem ser adicionadas por link M3U ou por login no formato Xtream Codes. 
 `parseXtreamUrl` / `Xtream.parse` recuperam o login para exibição e edição. O guia `xmltv.php` do mesmo login é usado
 quando a lista não anuncia um guia (`url-tvg`): adicionado automaticamente na TV e oferecido na página do guia na Web.
 
-### Consulta sob demanda (Web e Samsung)
+### Consulta sob demanda (Web, Samsung e Android TV)
 
 A lista M3U de um login traz cada episódio de cada série — com frequência centenas de milhares de registros. Por isso,
 na Web e na Samsung, um login **não é importado** (`Playlist.provider = 'xtream'`, `lib/xtream.ts`):
@@ -40,8 +40,11 @@ na Web e na Samsung, um login **não é importado** (`Playlist.provider = 'xtrea
   favoritos (que guardam nome e capa) e histórico reabrem o conteúdo sem consultar o catálogo.
 - Servidor sem a API (404 ou resposta que não é JSON): o login volta a ser importado como lista M3U (`get.php`).
 - "Atualizar" numa lista antiga importada de um login a converte para consulta sob demanda e libera o armazenamento.
-- Android TV mantém a importação completa da lista M3U do login. Um backup da Web com um login é restaurado no
-  Android como lista por endereço e importado normalmente (campos `provider`/`account` são ignorados).
+- Android TV: mesmas regras em `kotlin-core` (`XtreamApi`: respostas do servidor e ids) e `data/RemoteCatalog.kt`
+  (rede e cache em memória); o `Library` junta o banco local e o catálogo remoto nas mesmas consultas por categoria.
+  Banco na versão 2 (migração automática): `provider`/`expiresAt` nas listas e nome/capa nos favoritos.
+- Backups trazem `provider`, `account` e o `snapshot` dos favoritos nas duas plataformas: um login restaurado
+  conecta ao abrir, sem baixar a lista.
 
 ## Fluxo de importação
 

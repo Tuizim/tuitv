@@ -70,8 +70,10 @@ O TuiTV aparece na fileira de apps da tela inicial (banner próprio no Android T
 
 1. **Adicionar lista**, de um dos dois jeitos:
    - **Login (host, usuário e senha):** os três dados que o provedor envia (formato Xtream Codes). É o mais fácil de digitar
-     com o controle. O host aceita `servidor.com:8080` (sem `http://`, assumido) ou o endereço completo. O app monta o endereço
-     da lista (`get.php`, canais + filmes + séries) e adiciona o guia de programação do mesmo login (`xmltv.php`).
+     com o controle. O host aceita `servidor.com:8080` (sem `http://`, assumido) ou o endereço completo. Nada é importado:
+     o app conecta à API do provedor (`player_api.php`) e pede cada categoria quando você a abre, e os episódios ao abrir
+     a série — nada do catálogo fica guardado na TV. Adiciona também o guia do mesmo login (`xmltv.php`). Se o servidor
+     não tiver a API, a lista do login (`get.php`) é importada como antes.
    - **Link M3U:** o endereço completo da lista.
 
    Dica: para textos longos, use o teclado do app do controle no celular (Google TV / Fire TV) ou um teclado Bluetooth.

@@ -54,6 +54,8 @@ object Txt {
             ImportError.URL_MALFORMED -> "O endereço não é válido. Use um endereço completo, começando com http:// ou https://."
             ImportError.URL_SCHEME -> "Apenas endereços http:// e https:// são aceitos."
             ImportError.LOGIN_MISSING -> "Informe o host, o usuário e a senha."
+            ImportError.LOGIN_INVALID -> "O servidor recusou o usuário ou a senha."
+            ImportError.ACCOUNT_INACTIVE -> "A conta não está ativa no servidor (${e.detail ?: "?"})."
             ImportError.URL_PRIVATE -> "Este endereço aponta para a rede local ou interna. Para usá-lo, ative “Permitir endereços da rede local” nas Configurações."
             ImportError.OFFLINE -> "Sem conexão com a internet. A biblioteca já importada continua disponível."
             ImportError.NETWORK -> when (e.detail) {
@@ -105,6 +107,17 @@ object Txt {
         val c = Calendar.getInstance().apply { timeInMillis = ms }
         return "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
     }
+
+    /** Data local "DD/MM/AAAA". */
+    fun date(ms: Long): String {
+        val c = Calendar.getInstance().apply { timeInMillis = ms }
+        return "%02d/%02d/%04d".format(c.get(Calendar.DAY_OF_MONTH), c.get(Calendar.MONTH) + 1, c.get(Calendar.YEAR))
+    }
+
+    /** Resultado de adicionar/atualizar uma lista: itens importados ou, num login, categorias do servidor. */
+    fun playlistResult(p: tv.tui.tuitv.data.Playlist): String =
+        if (p.remote) "${p.name}: conectado, ${plural(p.live + p.movie + p.series, "categoria", "categorias")}"
+        else "${p.name}: ${plural(p.itemCount, "item importado", "itens importados")}"
 
     fun ago(ms: Long, now: Long = System.currentTimeMillis()): String {
         if (ms <= 0) return "nunca"

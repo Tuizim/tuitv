@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.map
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
@@ -166,7 +167,7 @@ fun AddUrlDialog(kind: SourceKind, onDismiss: () -> Unit, onAdded: () -> Unit = 
             try {
                 if (isPlaylist) {
                     val p = if (mode == PlaylistMode.LOGIN) library.addPlaylistLogin(name, host, user, pass) else library.addPlaylistUrl(name, url)
-                    toaster.show("${p.name}: ${Txt.plural(p.itemCount, "item importado", "itens importados")}")
+                    toaster.show(Txt.playlistResult(p))
                 } else {
                     val e = library.addEpgUrl(name, url)
                     toaster.show("${e.name}: ${Txt.plural(e.programmeCount, "programa", "programas")}")
@@ -229,7 +230,7 @@ fun EditPlaylistSourceDialog(playlist: Playlist, onDismiss: () -> Unit) {
             try {
                 val updated = if (mode == PlaylistMode.LOGIN) library.changePlaylistSource(playlist.id, login = Triple(host, user, pass))
                 else library.changePlaylistSource(playlist.id, url = url)
-                toaster.show("${updated.name}: ${Txt.plural(updated.itemCount, "item", "itens")}")
+                toaster.show(Txt.playlistResult(updated))
                 onDismiss()
             } catch (e: Exception) {
                 error = Txt.importError(e)
@@ -387,20 +388,35 @@ private fun PlaylistCard(p: Playlist) {
     var editing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val remoteError by remember(p.id) { library.remoteErrors.map { it[p.id] } }.collectAsStateWithLifecycle(null)
     Panel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(p.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             if (!p.active) Text("desativada", color = TuiColors.Warning)
         }
-        Muted(
-            listOf(
-                Txt.plural(p.itemCount, "item", "itens"),
-                Txt.plural(p.live, "canal", "canais"),
-                Txt.plural(p.movie, "filme", "filmes"),
-                Txt.plural(p.series, "episódio", "episódios"),
-                "atualizada ${Txt.ago(p.updatedAt)}",
-            ).joinToString(" · "),
-        )
+        if (p.remote) {
+            // Login sob demanda: categorias do servidor e vencimento da conta, sem contagem de itens.
+            Muted(
+                listOfNotNull(
+                    Txt.plural(p.live, "categoria de canais", "categorias de canais"),
+                    Txt.plural(p.movie, "de filmes", "de filmes"),
+                    Txt.plural(p.series, "de séries", "de séries"),
+                    p.expiresAt.takeIf { it > 0 }?.let { "vence em ${Txt.date(it)}" },
+                ).joinToString(" · "),
+            )
+            Muted("Consultada no servidor sob demanda: nada do catálogo fica guardado no aparelho.")
+            remoteError?.let { Text(Txt.importError(it), color = TuiColors.Warning) }
+        } else {
+            Muted(
+                listOf(
+                    Txt.plural(p.itemCount, "item", "itens"),
+                    Txt.plural(p.live, "canal", "canais"),
+                    Txt.plural(p.movie, "filme", "filmes"),
+                    Txt.plural(p.series, "episódio", "episódios"),
+                    "atualizada ${Txt.ago(p.updatedAt)}",
+                ).joinToString(" · "),
+            )
+        }
         val login = p.login
         Muted(
             when {
@@ -418,7 +434,7 @@ private fun PlaylistCard(p: Playlist) {
                     scope.launch {
                         try {
                             val updated = library.refreshPlaylist(p.id)
-                            toaster.show("${updated.name}: ${Txt.plural(updated.itemCount, "item", "itens")}")
+                            toaster.show(Txt.playlistResult(updated))
                         } catch (e: Exception) {
                             error = Txt.importError(e)
                         }
