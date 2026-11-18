@@ -178,3 +178,99 @@ test('sem gap em flex (Tizen 5.5/6.0): o espaçamento vira margem e o diálogo m
   await page.getByLabel('Host (servidor)').focus();
   await shot('05-adicionar-sem-flex-gap');
 });
+
+/** Lista por login no servidor de apoio (atalho pelo mouse; o controle é testado acima). */
+async function login(page: Page) {
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.getByRole('switch', { name: 'Permitir endereços da rede local' }).click();
+  await page.evaluate(() => (location.hash = '#/'));
+  await page.getByRole('button', { name: 'Adicionar lista' }).click();
+  await page.getByRole('tab', { name: 'Login' }).click();
+  await page.getByLabel('Host (servidor)').fill('127.0.0.1:4801');
+  await page.getByLabel('Usuário').fill('joão');
+  await page.getByLabel('Senha').fill('s&nha');
+  await page.getByRole('button', { name: 'Importar', exact: true }).click();
+  await expect(page.getByText(/Conectado a “127.0.0.1”/)).toBeVisible();
+}
+
+test('filme: cartão → ficha (capa, sinopse, Assistir, Favoritar) → player em tela cheia', async ({ page }) => {
+  const shot = (name: string) => page.screenshot({ path: new URL(`../build/screenshots/${name}.png`, import.meta.url).pathname });
+  const errors = await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/movies'));
+  const card = page.locator('main a.group[href*="title"]').first();
+  await expect(card).toBeVisible();
+  // Na TV o cartão é um único alvo: a estrela de favoritar não aparece nele.
+  await expect(card.locator('button')).toBeHidden();
+  await card.focus();
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByTestId('title-page')).toBeVisible();
+  await expect.poll(() => focused(page)).toContain('Assistir');
+  await page.waitForTimeout(300);
+  await shot('05-ficha-do-filme');
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => focused(page)).toContain('Favoritar');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => focused(page)).toContain('Nos favoritos');
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => focused(page)).toContain('Assistir');
+  await page.keyboard.press('Enter');
+
+  // Player próprio: tela cheia; ▼ leva aos botões e ▲ volta à barra de progresso.
+  await expect(page.getByTestId('tv-watch')).toBeVisible();
+  const player = page.getByTestId('player');
+  await expect(player).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('BUTTON');
+  await page.keyboard.press('ArrowUp');
+  await expect(player).toBeFocused();
+  await shot('06-player-tv');
+
+  // Voltar do controle: sai do player e volta à ficha.
+  await remote(page, BACK);
+  await expect(page.getByTestId('title-page')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('fileiras: ▲▼ voltam ao cartão em que o usuário estava', async ({ page }) => {
+  await open(page);
+  await expect.poll(() => focused(page)).toContain('Adicionar lista');
+  // Duas fileiras de cartões (mesma estrutura das telas), operadas pela navegação espacial real.
+  await page.evaluate(() => {
+    const main = document.querySelector('main')!;
+    main.innerHTML = '';
+    for (const row of ['A', 'B']) {
+      const div = document.createElement('div');
+      div.className = 'no-scrollbar';
+      div.style.cssText = 'display:flex;gap:16px;overflow-x:auto;padding:8px;margin-top:24px';
+      for (let i = 1; i <= 6; i++) {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.textContent = `${row}${i}`;
+        a.style.cssText = 'display:block;flex:0 0 300px;height:90px';
+        div.appendChild(a);
+      }
+      main.appendChild(div);
+    }
+    (main.querySelector('a') as HTMLElement).focus();
+  });
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  expect(await focused(page)).toBe('A3');
+  await page.waitForTimeout(500);
+  // A fileira desliza: o cartão em foco fica no início dela.
+  const offset = await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement;
+    return el.getBoundingClientRect().left - el.parentElement!.getBoundingClientRect().left;
+  });
+  expect(offset).toBeLessThan(20);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowRight');
+  const below = await focused(page);
+  expect(below.startsWith('B')).toBe(true);
+  await page.keyboard.press('ArrowUp');
+  expect(await focused(page)).toBe('A3');
+  await page.keyboard.press('ArrowDown');
+  expect(await focused(page)).toBe(below);
+});

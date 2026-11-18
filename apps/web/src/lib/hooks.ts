@@ -141,8 +141,15 @@ export function useRemoteSeries(seriesId: string | undefined): RemoteLoad {
   return { ...state, retry: () => setAttempt((n) => n + 1) };
 }
 
+/** Aplicativo de TV (Tizen): mesma interface, com ficha do título e player em tela cheia próprios. */
+export const isTv = (): boolean => typeof document !== 'undefined' && document.documentElement.dataset.platform === 'tizen';
+
+/** Ficha do filme (capa, sinopse, Assistir e Favoritar) — a etapa antes do player na TV. */
+export const titleHref = (item: MediaItem): string => `/title?id=${encodeURIComponent(item.id)}`;
+export const watchHref = (item: MediaItem): string => `/watch?id=${encodeURIComponent(item.id)}`;
+
 export const itemHref = (item: MediaItem): string =>
-  item.kind === 'live' ? `/live?c=${encodeURIComponent(item.id)}` : `/watch?id=${encodeURIComponent(item.id)}`;
+  item.kind === 'live' ? `/live?c=${encodeURIComponent(item.id)}` : item.kind === 'movie' && isTv() ? titleHref(item) : watchHref(item);
 export const seriesHref = (id: string): string => `/series/view?id=${encodeURIComponent(id)}`;
 
 export function download(filename: string, text: string, type = 'application/json') {

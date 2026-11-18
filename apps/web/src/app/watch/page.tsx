@@ -4,12 +4,13 @@ import { ArrowLeft, Film, SkipForward } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { nextEpisode } from '@tuitv/business-rules';
 import { FavoriteButton, UnavailableBadge } from '@/components/cards';
 import { Player } from '@/components/Player';
 import { Synopsis } from '@/components/Synopsis';
 import { Empty } from '@/components/ui';
-import { itemHref, seriesHref, useRemoteSeries } from '@/lib/hooks';
+import { isTv, itemHref, seriesHref, useRemoteSeries } from '@/lib/hooks';
 import { formatDuration, useT } from '@/lib/i18n';
 import { useMovieInfo, useSeriesInfo } from '@/lib/meta';
 import { seriesIdOf, useResolver, useStore } from '@/lib/store';
@@ -51,6 +52,31 @@ function Watch() {
       <Empty icon={<Film className="size-10" />} title={t('Conteúdo não encontrado')}>
         <p>{t('Ele pode pertencer a uma lista desativada ou removida.')}</p>
       </Empty>
+    );
+  }
+
+  const episodeLabelTv = item.series && item.series.season > 0 ? t('Temporada {s} · Episódio {e}', { s: item.series.season, e: item.series.episode }) : undefined;
+  if (isTv()) {
+    // TV: player próprio em tela cheia; Voltar retorna à ficha do filme ou à série.
+    // Portal no <body>: o <main> animado criaria um contexto de empilhamento abaixo do cabeçalho.
+    return createPortal(
+      <div className="fixed inset-0 z-[65] bg-black" data-testid="tv-watch">
+        <Player
+          tv
+          item={item}
+          startAt={resume.current?.at ?? 0}
+          subtitle={episodeLabelTv}
+          className="size-full"
+          onProgress={recordPlayback}
+          onEnded={() => {
+            if (next && autoplay) router.replace(itemHref(next));
+            else router.back();
+          }}
+          onNext={next ? () => router.replace(itemHref(next)) : undefined}
+          nextLabel={t('Próximo episódio')}
+        />
+      </div>,
+      document.body,
     );
   }
 

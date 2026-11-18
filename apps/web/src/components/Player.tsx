@@ -11,6 +11,7 @@ import {
   PictureInPicture2,
   Play,
   RectangleHorizontal,
+  RotateCcw,
   RotateCw,
   SkipBack,
   SkipForward,
@@ -167,9 +168,18 @@ export interface PlayerProps {
   /** Texto secundário (programa atual, temporada/episódio…). */
   subtitle?: ReactNode;
   className?: string;
+  /**
+   * Player de TV (Tizen), no estilo Netflix: tela cheia, ◀▶ avançam/voltam com saltos crescentes
+   * aplicados só quando o usuário para, OK pausa, ▼ leva aos botões e ▲ volta à barra de progresso.
+   */
+  tv?: boolean;
+  /** Rótulo do botão "próximo" no modo TV (ex.: "Próximo episódio"). */
+  nextLabel?: string;
 }
 
-export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext, subtitle, className }: PlayerProps) {
+type Flash = 'play' | 'pause' | 'back' | 'forward';
+
+export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext, subtitle, className, tv = false, nextLabel }: PlayerProps) {
   const t = useT();
   const settings = useStore((s) => s.settings);
   const updateSettings = useStore((s) => s.updateSettings);
@@ -527,6 +537,68 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
     video.currentTime = Math.min(video.duration, Math.max(0, video.currentTime + delta));
   }, []);
 
+  /* ── Modo TV: busca acumulada, retorno visual e foco entre barra e botões ── */
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const [scrubTo, setScrubTo] = useState<number | null>(null);
+  const scrubRef = useRef<number | null>(null);
+  const scrubSteps = useRef(0);
+  const scrubTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [flash, setFlash] = useState<Flash | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [barFocused, setBarFocused] = useState(true);
+
+  const showFlash = useCallback((kind: Flash) => {
+    setFlash(kind);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 650);
+  }, []);
+
+  const commitScrub = useCallback(() => {
+    clearTimeout(scrubTimer.current);
+    const target = scrubRef.current;
+    if (target === null) return;
+    if (videoRef.current) videoRef.current.currentTime = target;
+    setTime(target);
+    scrubRef.current = null;
+    scrubSteps.current = 0;
+    setScrubTo(null);
+  }, []);
+
+  const scrub = useCallback(
+    (direction: 1 | -1) => {
+      const video = videoRef.current;
+      if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+      // Quanto mais toques seguidos, maior o salto: 10 s, depois 30 s, depois 1 min.
+      const n = scrubSteps.current++;
+      const step = n < 3 ? 10 : n < 8 ? 30 : 60;
+      const next = Math.min(video.duration, Math.max(0, (scrubRef.current ?? video.currentTime) + direction * step));
+      scrubRef.current = next;
+      setScrubTo(next);
+      showFlash(direction > 0 ? 'forward' : 'back');
+      clearTimeout(scrubTimer.current);
+      scrubTimer.current = setTimeout(commitScrub, 700);
+    },
+    [commitScrub, showFlash],
+  );
+
+  useEffect(() => {
+    clearTimeout(scrubTimer.current);
+    scrubRef.current = null;
+    scrubSteps.current = 0;
+    setScrubTo(null);
+  }, [item.id]);
+  useEffect(() => () => {
+    clearTimeout(scrubTimer.current);
+    clearTimeout(flashTimer.current);
+  }, []);
+
+  const tvToggle = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    showFlash(video.paused ? 'play' : 'pause');
+    togglePlay();
+  };
+
   const idleTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const wake = useCallback(() => {
     setIdle(false);
@@ -535,7 +607,56 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
   }, []);
   useEffect(() => () => clearTimeout(idleTimer.current), []);
 
+  const onTvKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    wake();
+    if (target !== containerRef.current) {
+      // Nos botões: ◀▶ e OK são deles (navegação espacial); ▲ volta à barra de progresso.
+      if (event.key === 'ArrowUp' && menu === null && !target.closest('[role="menu"]')) {
+        containerRef.current?.focus({ preventScroll: true });
+        event.preventDefault();
+      } else if (event.key === 'k') {
+        tvToggle();
+        event.preventDefault();
+      }
+      return;
+    }
+    switch (event.key) {
+      case 'ArrowLeft':
+        scrub(-1);
+        break;
+      case 'ArrowRight':
+        scrub(1);
+        break;
+      case 'Enter':
+      case ' ':
+      case 'k':
+        if (scrubRef.current !== null) commitScrub();
+        else if (!isLive || event.key === 'k') tvToggle();
+        break;
+      case 'ArrowDown':
+        if (isLive && onNext) onNext();
+        else controlsRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+        break;
+      case 'ArrowUp':
+        if (isLive && onPrev) onPrev();
+        break;
+      case 'PageUp':
+      case 'ChannelUp':
+        onPrev?.();
+        break;
+      case 'PageDown':
+      case 'ChannelDown':
+        onNext?.();
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (tv) return onTvKeyDown(event);
     const target = event.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
     wake();
@@ -614,8 +735,14 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
   const pipSupported = typeof document !== 'undefined' && 'pictureInPictureEnabled' in document && document.pictureInPictureEnabled;
 
   const busy = phase === 'loading' || phase === 'buffering' || phase === 'reconnecting';
-  const showControls = !idle || paused || phase !== 'playing' || menu !== null;
+  const showControls = !idle || paused || phase !== 'playing' || menu !== null || scrubTo !== null;
+  // Controles escondidos não podem ficar com o foco (TV): ele volta à barra de progresso.
+  useEffect(() => {
+    if (!tv || showControls) return;
+    if (controlsRef.current?.contains(document.activeElement)) containerRef.current?.focus({ preventScroll: true });
+  }, [tv, showControls]);
   const VolumeIcon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
+  const tvButton = 'tv-ctl inline-flex h-12 w-12 shrink-0 items-center justify-center gap-2 rounded-full bg-white/15 text-white transition-transform duration-150';
   const controlButton = 'inline-flex size-10 items-center justify-center rounded-lg text-white/90 transition hover:bg-white/15 hover:text-white';
 
   return (
@@ -623,6 +750,7 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
       ref={containerRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onFocus={(event) => setBarFocused(event.target === event.currentTarget)}
       onPointerMove={wake}
       onPointerDown={wake}
       data-phase={phase}
@@ -646,7 +774,7 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
         </div>
       )}
 
-      {phase === 'ready' && paused && (
+      {phase === 'ready' && paused && !tv && (
         <button type="button" onClick={togglePlay} aria-label={t('Reproduzir')} className="absolute inset-0 flex items-center justify-center bg-black/30">
           <span className="flex size-16 items-center justify-center rounded-full bg-accent text-accent-ink">
             <Play className="size-8 translate-x-0.5" fill="currentColor" />
@@ -665,6 +793,94 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
         </div>
       )}
 
+      {tv ? (
+        <>
+          <div
+            className={cx(
+              'pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/80 to-transparent px-14 pt-10 pb-16 transition-opacity duration-300',
+              showControls ? 'opacity-100' : 'opacity-0',
+            )}
+          >
+            <p className="truncate text-3xl font-bold">{item.name}</p>
+            {subtitle && <p className="mt-1 truncate text-lg text-white/75">{subtitle}</p>}
+          </div>
+
+          {flash && (
+            <div className="tv-flash pointer-events-none absolute top-1/2 left-1/2 flex size-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55" aria-hidden>
+              {flash === 'play' && <Play className="size-14 translate-x-1" fill="currentColor" />}
+              {flash === 'pause' && <Pause className="size-14" fill="currentColor" />}
+              {flash === 'back' && <RotateCcw className="size-14" />}
+              {flash === 'forward' && <RotateCw className="size-14" />}
+            </div>
+          )}
+
+          <div
+            ref={controlsRef}
+            className={cx(
+              'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-14 pt-24 pb-10 transition-[opacity,visibility] duration-300',
+              showControls ? 'visible opacity-100' : 'invisible opacity-0',
+            )}
+          >
+            {seekable ? (
+              <TvSeekBar position={scrubTo ?? time} duration={duration} scrubbing={scrubTo !== null} focused={barFocused} />
+            ) : isLive ? (
+              <span className="inline-flex items-center gap-2 rounded bg-danger px-2.5 py-1 text-sm font-bold tracking-wide">{t('AO VIVO')}</span>
+            ) : null}
+            <div className="mt-6 flex items-center gap-4">
+              <button type="button" className={tvButton} onClick={tvToggle} aria-label={paused ? t('Reproduzir') : t('Pausar')}>
+                {paused ? <Play className="size-6 translate-x-0.5" fill="currentColor" /> : <Pause className="size-6" fill="currentColor" />}
+              </button>
+              {seekable && (
+                <>
+                  <button type="button" className={tvButton} onClick={() => seekBy(-10)} aria-label={t('Voltar 10 segundos')}>
+                    <RotateCcw className="size-6" />
+                  </button>
+                  <button type="button" className={tvButton} onClick={() => seekBy(10)} aria-label={t('Avançar 10 segundos')}>
+                    <RotateCw className="size-6" />
+                  </button>
+                </>
+              )}
+              {audio.length > 1 && (
+                <TrackMenu
+                  open={menu === 'audio'}
+                  onToggle={() => setMenu(menu === 'audio' ? null : 'audio')}
+                  label={t('Áudio')}
+                  icon={<AudioLines className="size-6" />}
+                  options={audio}
+                  selected={audioId}
+                  onSelect={selectAudio}
+                  buttonClass={tvButton}
+                />
+              )}
+              {subs.length > 0 && (
+                <TrackMenu
+                  open={menu === 'subs'}
+                  onToggle={() => setMenu(menu === 'subs' ? null : 'subs')}
+                  label={t('Legendas')}
+                  icon={<Captions className="size-6" />}
+                  options={[{ id: -1, label: t('Desativadas') }, ...subs]}
+                  selected={subId}
+                  onSelect={selectSubtitle}
+                  buttonClass={tvButton}
+                />
+              )}
+              <button type="button" className={tvButton} onClick={cycleAspect} aria-label={aspectLabel} title={aspectLabel}>
+                <RectangleHorizontal className="size-6" />
+              </button>
+              {onNext && !isLive && (
+                <button type="button" className={cx(tvButton, 'w-auto px-6')} onClick={onNext}>
+                  <SkipForward className="size-6" /> <span className="text-base font-semibold">{nextLabel ?? t('Próximo')}</span>
+                </button>
+              )}
+              <span className="flex-1" />
+              <span className="text-base text-white/60">
+                {barFocused ? (isLive ? t('▲▼ trocar canal · Voltar sai') : t('◀▶ avançar/voltar · OK pausa · ▼ botões')) : t('▲ barra de progresso')}
+              </span>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
       <div
         className={cx(
           'pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/75 to-transparent px-4 pt-3 pb-8 transition-opacity',
@@ -784,6 +1000,32 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
             {fullscreen ? <Minimize className="size-5" /> : <Maximize className="size-5" />}
           </button>
         </div>
+      </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Barra de progresso do player de TV: tempo alvo durante a busca e tempo restante, como na Netflix. */
+function TvSeekBar({ position, duration, scrubbing, focused }: { position: number; duration: number; scrubbing: boolean; focused: boolean }) {
+  const pct = Math.min(100, Math.max(0, (position / duration) * 100));
+  return (
+    <div>
+      <div className="relative h-9">
+        {scrubbing && (
+          <span className="absolute bottom-1 -translate-x-1/2 text-2xl font-bold tabular-nums" style={{ left: `${Math.min(96, Math.max(4, pct))}%` }}>
+            {formatClock(position)}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-6">
+        <div className="relative flex h-6 flex-1 items-center">
+          <div className={cx('w-full rounded-full bg-white/30 transition-[height]', focused ? 'h-2' : 'h-1')} />
+          <div className={cx('absolute left-0 rounded-full bg-danger transition-[height]', focused ? 'h-2' : 'h-1')} style={{ width: `${pct}%` }} />
+          {focused && <div className="absolute size-6 -translate-x-1/2 rounded-full bg-danger shadow-lg shadow-black/50" style={{ left: `${pct}%` }} />}
+        </div>
+        <span className="text-xl tabular-nums">-{formatClock(Math.max(0, duration - position))}</span>
       </div>
     </div>
   );

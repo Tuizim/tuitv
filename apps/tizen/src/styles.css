@@ -4,35 +4,106 @@
 @source '../../web/src';
 
 /*
- * Ajustes para TV (somente no aplicativo Tizen): foco visível a distância, sem destoar da interface.
- * - outline não acompanha bordas arredondadas no Chromium < 94 (Tizen < 7): o anel é um box-shadow
- *   interno, que segue o arredondamento e não é cortado por listas com rolagem;
- * - campos de texto: só a borda fica na cor de destaque, como na Web;
- * - cards (.group) já destacam a capa com o próprio anel.
+ * Foco para TV, no estilo Netflix — sem bordas nem anéis (somente no aplicativo Tizen):
+ *  - cartões (.group): a capa cresce e ganha brilho; o título abaixo acende;
+ *  - botões, links e itens de lista: fundo branco com texto escuro;
+ *  - campos de texto: fundo mais claro e um traço de destaque embaixo;
+ *  - o que não é a ação principal do cartão (estrela, setas das fileiras) some: na TV cada cartão é
+ *    um único alvo do controle — favoritar fica na ficha do título.
+ * Tudo com seletores simples e transform/box-shadow, compatíveis com o Chromium 69 (Tizen 5.5).
  */
 html[data-platform='tizen'] :focus {
   outline: none;
 }
 
-html[data-platform='tizen'] :focus:not(input):not(textarea):not(select):not(.group) {
-  box-shadow: inset 0 0 0 2px var(--tui-accent);
+html[data-platform='tizen'] :focus:not(input):not(textarea):not(select):not(.group):not([data-testid='player']) {
+  background-color: #ffffff !important;
+  color: #070c16 !important;
+  border-color: transparent !important;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45) !important;
+}
+html[data-platform='tizen'] :focus:not(input):not(textarea):not(select):not(.group):not([data-testid='player']) * {
+  color: inherit !important;
 }
 
+/* Botões padronizados da ficha e do player: mesma altura, crescem levemente no foco. */
+html[data-platform='tizen'] .tv-action:focus,
+html[data-platform='tizen'] .tv-ctl:focus {
+  transform: scale(1.08);
+}
+
+/* Cartões: sem anel; a capa cresce e brilha. */
+html[data-platform='tizen'] .group > div:first-child {
+  transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
+  will-change: transform;
+}
+html[data-platform='tizen'] .group:focus > div:first-child {
+  transform: scale(1.08);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6), 0 0 26px rgba(56, 189, 248, 0.45) !important;
+}
+html[data-platform='tizen'] .group > p:first-of-type {
+  color: var(--tui-muted);
+  transition: color 0.18s;
+}
+html[data-platform='tizen'] .group:focus > p:first-of-type {
+  color: var(--tui-text);
+  font-weight: 700;
+}
+html[data-platform='tizen'] .group .absolute.top-1.right-1 {
+  display: none;
+}
+html[data-platform='tizen'] .group\/row > .relative > button {
+  display: none !important;
+}
+/* Espaço para a capa crescer sem ser cortada pela fileira. */
+html[data-platform='tizen'] .group\/row .no-scrollbar {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+/* Campos de texto: sem contorno; fundo claro e traço embaixo. */
 html[data-platform='tizen'] input:focus,
 html[data-platform='tizen'] textarea:focus,
 html[data-platform='tizen'] select:focus {
-  border-color: var(--tui-accent);
-  box-shadow: inset 0 0 0 1px var(--tui-accent);
+  border-color: transparent;
+  background-color: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 -3px 0 var(--tui-accent);
 }
 
 /* Campos sem borda dentro de outro elemento (busca do topo, filtro do seletor): o destaque fica no contêiner. */
 html[data-platform='tizen'] input.bg-transparent:focus {
   box-shadow: none;
+  background-color: transparent;
 }
 html[data-platform='tizen'] form[role='search']:focus-within {
-  border-color: var(--tui-accent);
+  border-color: transparent;
+  box-shadow: inset 0 -3px 0 var(--tui-accent);
+}
+
+/* Retorno visual dos comandos do player (play, pausa, ±10 s). */
+@keyframes tv-flash {
+  from {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.tv-flash {
+  animation: tv-flash 0.65s ease-out forwards;
 }
 
 html[data-platform='tizen'] {
   cursor: none;
+}
+
+/* Links curtos (título de fileira, "Ver tudo"): a pílula branca ganha respiro sem mover o layout. */
+html[data-platform='tizen'] h2 a:focus,
+html[data-platform='tizen'] a.text-accent:focus {
+  padding: 4px 10px;
+  margin: -4px -10px;
+  border-radius: 8px;
 }

@@ -64,7 +64,8 @@ type Direction = 'up' | 'down' | 'left' | 'right';
 const ARROWS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 
 function isVisible(el: HTMLElement): boolean {
-  if (el.closest('[inert], [aria-hidden="true"]')) return false;
+  // Também ignora o que está transparente (setas das fileiras, controles do player escondidos).
+  if (el.closest('[inert], [aria-hidden="true"], .opacity-0, .invisible')) return false;
   const rect = el.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return false;
   const style = window.getComputedStyle(el);
@@ -133,9 +134,66 @@ export function nearest(from: DOMRect, candidates: HTMLElement[], dir: Direction
   return best;
 }
 
+/* ── Fileiras e rolagem no estilo Netflix ───────────────────────────────── */
+
+/** Fileira horizontal (carrossel de cartões) que contém o elemento. */
+export function rowOf(el: Element): HTMLElement | null {
+  return el.closest<HTMLElement>('[data-nav-row], .no-scrollbar');
+}
+
+/** Último elemento focado em cada fileira: voltar a ela com ▲▼ devolve o foco ao mesmo cartão. */
+const lastInRow = new WeakMap<HTMLElement, HTMLElement>();
+
+function remember(el: HTMLElement) {
+  const row = rowOf(el);
+  if (row) lastInRow.set(row, el);
+}
+
+/** Ao entrar numa fileira vinda de outra parte da tela (▲▼), prefere o cartão lembrado. */
+export function preferRemembered(active: HTMLElement, next: HTMLElement, dir: Direction): HTMLElement {
+  if (dir !== 'up' && dir !== 'down') return next;
+  const row = rowOf(next);
+  if (!row || row === rowOf(active)) return next;
+  const remembered = lastInRow.get(row);
+  return remembered && remembered !== next && row.contains(remembered) && document.contains(remembered) ? remembered : next;
+}
+
+/** Contêiner com rolagem vertical própria (diálogo, menu, lista lateral), se houver. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+    const style = window.getComputedStyle(node);
+    if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 1) return node;
+  }
+  return null;
+}
+
+/** Faixa da tela em que o foco pode andar sem rolar a página (abaixo do cabeçalho fixo). */
+const TOP_SAFE = 96;
+const BOTTOM_SAFE = 0.78;
+/** Ao sair da faixa, o elemento é levado a ~30% da altura: sobra espaço para ver o que vem depois. */
+const PIVOT = 0.3;
+
 function focus(el: HTMLElement) {
   el.focus({ preventScroll: true });
-  el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  remember(el);
+  const row = rowOf(el);
+  if (row) {
+    // Cartão em foco sempre no início da fileira: a fileira desliza por baixo dele.
+    const pad = parseFloat(window.getComputedStyle(row).paddingLeft) || 0;
+    const delta = el.getBoundingClientRect().left - row.getBoundingClientRect().left - pad;
+    row.scrollTo({ left: Math.max(0, row.scrollLeft + delta), behavior: 'smooth' });
+  }
+  const parent = scrollParent(row ?? el);
+  if (parent) {
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    return;
+  }
+  const rect = el.getBoundingClientRect();
+  const height = window.innerHeight;
+  if (rect.top < TOP_SAFE || rect.bottom > height * BOTTOM_SAFE) {
+    const target = rect.height > height * 0.6 ? TOP_SAFE : Math.max(TOP_SAFE, height * PIVOT);
+    window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - target), behavior: 'smooth' });
+  }
 }
 
 /** Em campos de texto, ← → movem o cursor até a borda do texto; só então o foco sai do campo. */
@@ -180,9 +238,9 @@ function onArrow(event: KeyboardEvent) {
   }
   if (!caretAllowsLeaving(active!, dir)) return;
   const candidates = focusables().filter((el) => el !== active && !el.contains(active) && !active!.contains(el));
-  const next = nearest(active!.getBoundingClientRect(), candidates, dir);
+  const found = nearest(active!.getBoundingClientRect(), candidates, dir);
   event.preventDefault();
-  if (next) focus(next);
+  if (found) focus(preferRemembered(active!, found, dir));
 }
 
 function exitApp() {
@@ -256,6 +314,10 @@ export function installRemote() {
       }
     }
   }
+  // Foco vindo de qualquer lugar (clique, autoFocus) também é lembrado na fileira.
+  window.addEventListener('focusin', (event) => {
+    if (event.target instanceof HTMLElement) remember(event.target);
+  });
   // Captura: Voltar e teclas de mídia são tratados antes da interface.
   window.addEventListener('keydown', onKey, true);
   // Bolha: a interface (player, listas, menus) tem prioridade sobre a navegação espacial.

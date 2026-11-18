@@ -352,4 +352,12 @@ export const en: Record<string, string> = {
   'Conectado a “{name}”: {n} categorias. O conteúdo é carregado do servidor quando você abre cada uma.': 'Connected to “{name}”: {n} categories. Content is loaded from the server when you open each one.',
   'O usuário e a senha ficam apenas neste dispositivo. O TuiTV consulta o servidor do provedor quando você abre cada categoria, sem baixar a lista inteira.': "The username and password stay on this device only. TuiTV queries the provider's server when you open each category, without downloading the whole list.",
   'Conectando ao servidor…': 'Connecting to the server…',
+  'Continuar de {time}': 'Resume from {time}',
+  'Do início': 'From the start',
+  'Nos favoritos': 'In favorites',
+  'Voltar 10 segundos': 'Back 10 seconds',
+  'Avançar 10 segundos': 'Forward 10 seconds',
+  '▲▼ trocar canal · Voltar sai': '▲▼ change channel · Back exits',
+  '◀▶ avançar/voltar · OK pausa · ▼ botões': '◀▶ seek · OK pauses · ▼ buttons',
+  '▲ barra de progresso': '▲ progress bar',
 };
