@@ -213,7 +213,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         {/* Na TV o logotipo é só marca: não recebe o foco do controle (Início fica no menu). */}
         <Link href="/" aria-label="TuiTV" tabIndex={isTv() ? -1 : undefined} className={cx('shrink-0 rounded-lg', searchOpen && 'max-sm:hidden')}>
-          <Logo className="text-2xl" />
+          {/* No celular só o gato (SVG); o logotipo com o nome volta a partir do md. */}
+          <CatMark className="size-9 md:hidden" />
+          <Logo className="text-2xl max-md:hidden" />
         </Link>
 
         <nav className="ml-6 hidden items-center gap-1 md:flex" aria-label={t('Menu principal')}>
