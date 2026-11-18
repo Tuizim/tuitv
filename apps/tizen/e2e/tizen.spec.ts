@@ -150,3 +150,29 @@ test('capturas de tela para conferência visual (build/screenshots)', async ({ p
   await page.waitForTimeout(400);
   await shot('04-ao-vivo');
 });
+
+test('sem gap em flex (Tizen 5.5/6.0): o espaçamento vira margem e o diálogo mantém o layout', async ({ page }) => {
+  const shot = (name: string) => page.screenshot({ path: new URL(`../build/screenshots/${name}.png`, import.meta.url).pathname });
+  await page.addInitScript(() => localStorage.setItem('tuitv-no-flex-gap', '1'));
+  await open(page);
+  await expect(page.locator('html.no-flex-gap')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Adicionar lista' }).click();
+  await page.getByRole('tab', { name: 'Login' }).click();
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  // Simula o Chromium < 84: gap ignorado em flex (em grid continua valendo).
+  await page.addStyleTag({ content: '[class*=flex]:not([class*=grid]){gap:0!important}' });
+  // Ícone e texto da aba não ficam colados; botões Cancelar/Importar separados.
+  const tab = page.getByRole('tab', { name: 'Login' });
+  const [icon, text] = await tab.evaluate((el) => {
+    const svg = el.querySelector('svg')!.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(el.lastChild!);
+    return [svg.right, range.getBoundingClientRect().left];
+  });
+  expect(text - icon).toBeGreaterThanOrEqual(6);
+  const cancel = await page.getByRole('button', { name: 'Cancelar' }).boundingBox();
+  const submit = await page.getByRole('button', { name: 'Importar', exact: true }).boundingBox();
+  expect(submit!.x - (cancel!.x + cancel!.width)).toBeGreaterThanOrEqual(6);
+  await page.getByLabel('Host (servidor)').focus();
+  await shot('05-adicionar-sem-flex-gap');
+});

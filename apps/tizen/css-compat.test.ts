@@ -59,5 +59,62 @@ describe('compatibilidade do CSS com Tizen 5.5 (Chromium 69)', () => {
     expect(auditCss('.x{color:oklch(50% .1 200)}')).toHaveLength(1);
     expect(auditCss('.x{color:#123;color:oklch(50% .1 200)}')).toHaveLength(0);
     expect(auditCss('@supports (color:lab(0% 0 0)){.x{color:lab(50% 1 1)}}')).toHaveLength(0);
+    expect(auditCss('.px-3{padding-inline:12px}')).toHaveLength(1);
+    expect(
+      auditCss('.bg-a\\/15{background-color:var(--tui-accent)}@supports (color:color-mix(in lab, red, red)){.bg-a\\/15{background-color:color-mix(in oklab, var(--tui-accent) 15%, transparent)}}'),
+    ).toHaveLength(1);
+  });
+
+  it('propriedades lógicas viram físicas (px-*, py-*, mx-*, space-y-*)', async () => {
+    const out = norm(
+      await compatCss(
+        '.px-3{padding-inline:calc(var(--spacing) * 3)} .py{padding-block:1px 2px} .mx-auto{margin-inline:auto} .s>:not(:last-child){margin-block-end:4px}',
+      ),
+    );
+    expect(out).not.toMatch(/-(inline|block)/);
+    expect(out).toContain('padding-left:calc(var(--spacing)*3);padding-right:calc(var(--spacing)*3)');
+    expect(out).toContain('padding-top:1px;padding-bottom:2px');
+    expect(out).toContain('margin-left:auto;margin-right:auto');
+    expect(out).toContain('margin-bottom:4px');
+  });
+
+  it('cores do tema com transparência mantêm a transparência sem color-mix()', async () => {
+    const out = norm(
+      await compatCss(
+        ':root{--tui-accent:#38bdf8} [data-theme=light]{--tui-accent:#0284c7} .bg-accent\\/15{background-color:var(--tui-accent);@supports (color:color-mix(in lab, red, red)){background-color:color-mix(in oklab, var(--tui-accent) 15%, transparent)}}',
+      ),
+    );
+    expect(out).toContain('--tui-accent-rgb:56,189,248');
+    expect(out).toContain('--tui-accent-rgb:2,132,199');
+    expect(out).toContain('.bg-accent\\/15{background-color:rgba(var(--tui-accent-rgb),.15)}');
+    // Mesmo CSS já sem aninhamento (como o Vite entrega no build).
+    const flat = norm(
+      await compatCss(
+        ':root{--tui-line:#1c2a42} .b\\/60{border-color:var(--tui-line)} @supports (color:color-mix(in lab, red, red)){.b\\/60{border-color:color-mix(in oklab, var(--tui-line) 60%, transparent)}}',
+      ),
+    );
+    expect(flat).toContain('.b\\/60{border-color:rgba(var(--tui-line-rgb),.6)}');
+    // Regra combinada com a cor sólida.
+    const merged = norm(
+      await compatCss(
+        ':root{--tui-line:#1c2a42} .b,.b\\/60{border-color:var(--tui-line)} @supports (color:color-mix(in lab, red, red)){.b\\/60{border-color:color-mix(in oklab, var(--tui-line) 60%, transparent)}}',
+      ),
+    );
+    expect(merged).toContain('.b{border-color:var(--tui-line)}');
+    expect(merged).toContain('.b\\/60{border-color:rgba(var(--tui-line-rgb),.6)}');
+    expect(auditCss(await compatCss(':root{--tui-accent:#38bdf8} .b\\/15{color:var(--tui-accent);@supports (color:color-mix(in lab, red, red)){color:color-mix(in oklab, var(--tui-accent) 15%, transparent)}}'))).toHaveLength(0);
+  });
+
+  it('gap em flex ganha margens quando o navegador não o aplica (html.no-flex-gap)', async () => {
+    const raw = await compatCss('.gap-2{gap:8px} .gap-y-1{row-gap:4px} @media (min-width:40rem){.sm\\:gap-4{gap:16px}}');
+    expect(raw).toContain('.no-flex-gap .gap-2'); // descendente de <html class="no-flex-gap">
+    const out = norm(raw);
+    expect(out).toContain('.gap-2{gap:8px}');
+    expect(out).toContain('.gap-2:not([class*=grid]):not(.flex-col):not(.flex-wrap)>*+:not(.ml-auto){margin-left:8px}');
+    expect(out).toContain('.gap-2:not([class*=grid]).flex-col>*+:not(.mt-auto){margin-top:8px}');
+    expect(out).toContain('.gap-2:not([class*=grid]).flex-wrap>*{margin-bottom:8px;margin-right:8px}');
+    expect(out).toContain('.gap-y-1:not([class*=grid]).flex-col>*+:not(.mt-auto){margin-top:4px}');
+    expect(out).not.toContain('.gap-y-1:not([class*=grid]):not(.flex-col)');
+    expect(out).toMatch(/@media\(min-width:40rem\)\{[^}]*\}\.no-flex-gap\.sm\\:gap-4/);
   });
 });

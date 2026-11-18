@@ -4,13 +4,33 @@
 @source '../../web/src';
 
 /*
- * Ajustes para TV (somente no aplicativo Tizen):
- * o foco precisa ser sempre bem visível a 3 metros de distância.
+ * Ajustes para TV (somente no aplicativo Tizen): foco visível a distância, sem destoar da interface.
+ * - outline não acompanha bordas arredondadas no Chromium < 94 (Tizen < 7): o anel é um box-shadow
+ *   interno, que segue o arredondamento e não é cortado por listas com rolagem;
+ * - campos de texto: só a borda fica na cor de destaque, como na Web;
+ * - cards (.group) já destacam a capa com o próprio anel.
  */
 html[data-platform='tizen'] :focus {
-  outline: 3px solid var(--tui-accent);
-  /* Por dentro do elemento: listas com rolagem não cortam o contorno. */
-  outline-offset: -3px;
+  outline: none;
+}
+
+html[data-platform='tizen'] :focus:not(input):not(textarea):not(select):not(.group) {
+  box-shadow: inset 0 0 0 2px var(--tui-accent);
+}
+
+html[data-platform='tizen'] input:focus,
+html[data-platform='tizen'] textarea:focus,
+html[data-platform='tizen'] select:focus {
+  border-color: var(--tui-accent);
+  box-shadow: inset 0 0 0 1px var(--tui-accent);
+}
+
+/* Campos sem borda dentro de outro elemento (busca do topo, filtro do seletor): o destaque fica no contêiner. */
+html[data-platform='tizen'] input.bg-transparent:focus {
+  box-shadow: none;
+}
+html[data-platform='tizen'] form[role='search']:focus-within {
+  border-color: var(--tui-accent);
 }
 
 html[data-platform='tizen'] {

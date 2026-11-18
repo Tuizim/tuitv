@@ -19,6 +19,7 @@ import FavoritesPage from '@/app/favorites/page';
 import HistoryPage from '@/app/history/page';
 import PlaylistsPage from '@/app/playlists/page';
 import SettingsPage from '@/app/settings/page';
+import { installFlexGapFallback } from './flex-gap';
 import { installRemote } from './remote';
 import { useLocation } from './router';
 import './styles.css';
@@ -50,5 +51,6 @@ function App() {
 }
 
 document.documentElement.dataset.platform = 'tizen';
+installFlexGapFallback();
 installRemote();
 createRoot(document.getElementById('root')!).render(<App />);

@@ -20,8 +20,8 @@ Não há uma segunda interface para manter: as telas vêm de `apps/web/src`.
 | 8.0+ | 2024+ | 108+ | Suportada |
 | 7.0 | 2023 | 94 | Suportada |
 | 6.5 | 2022 | 85 | Suportada |
-| 6.0 | 2021 | 76 | Suportada; espaçamento menor entre alguns elementos (sem `gap` em flex, Chromium 84+) |
-| 5.5 | 2020 | 69 | Mínimo suportado; mesma observação |
+| 6.0 | 2021 | 76 | Suportada (sem `gap` em flex: alternativa por margens, ver abaixo) |
+| 5.5 | 2020 | 69 | Mínimo suportado |
 | ≤ 5.0 | ≤ 2019 | ≤ 63 | Não suportada |
 
 O build garante isso automaticamente:
@@ -31,6 +31,15 @@ O build garante isso automaticamente:
   valores iniciais de `@property`, `translate`/`scale`/`rotate` → `transform`, alternativas para `dvh` e `aspect-ratio`,
   `:focus-visible` → `:focus`, e Lightning CSS para aninhamento e cores. Uma auditoria faz o build **falhar** se sobrar
   algum recurso que a TV descartaria.
+- **Propriedades lógicas** (`padding-inline`, `padding-block`, `margin-inline`; Chromium 87+) viram físicas — sem isso
+  todo `px-*`/`py-*` some e campos e botões ficam sem preenchimento.
+- **Cores do tema com transparência** (`bg-accent/15`): a alternativa sem `color-mix()` passa a ser
+  `rgba(var(--tui-accent-rgb), .15)` em vez da cor sólida.
+- **`gap` em flex** (Chromium 84+): `src/flex-gap.ts` detecta a falta e marca `<html class="no-flex-gap">`; o build gera
+  margens equivalentes entre elementos, e o script aplica a margem ao lado de textos soltos (`<Ícone /> Texto`).
+  Para conferir numa TV nova: `localStorage.setItem('tuitv-no-flex-gap', '1')`.
+- **Foco:** anel interno de 2 px que acompanha o arredondamento (o `outline` não acompanha no Chromium < 94); em campos
+  de texto, só a borda muda de cor.
 - **Script clássico** (não módulo ES) e caminhos relativos, para carregar de `file://`.
 
 ## Gerar o pacote
@@ -99,5 +108,4 @@ trocar de canal com Canal −, Voltar e fechar o app. Capturas ficam em `apps/ti
   Codecs e desempenho dependem da TV.
 - **Menus do player** (áudio, legendas, proporção) foram feitos para mouse/toque: no controle, as setas controlam
   a reprodução e não chegam a esses botões.
-- **Tizen 5.5/6.0:** espaçamento reduzido onde a interface usa `gap` em flex.
 - Interface com escala fixa: largura lógica de 1280 px (1,5× em TVs Full HD).
