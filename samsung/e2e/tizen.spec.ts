@@ -581,3 +581,39 @@ test('menu do topo com o controle: OK abre com o foco no 1º item, ▲▼ andam 
   await expect(menu).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('série com o controle: episódio em foco bem visível (cartões e grade) e um único alvo por episódio', async ({ page }) => {
+  const shot = (name: string) => page.screenshot({ path: new URL(`../build/screenshots/${name}.png`, import.meta.url).pathname });
+  const errors = await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/series'));
+  await page.locator('main a.group', { hasText: 'Vale Escuro' }).first().click();
+  await expect(page.getByRole('heading', { name: 'Vale Escuro' })).toBeVisible();
+  const focusedEpisode = () =>
+    page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el?.dataset.episode) return null;
+      const style = getComputedStyle(el);
+      return { label: el.getAttribute('aria-label'), background: style.backgroundColor, transform: style.transform };
+    });
+  // Temporada 1 (com sinopse e miniatura): cartões. ▼ a partir das ações chega ao primeiro episódio.
+  await expect(page.getByTestId('episodes')).toHaveAttribute('data-layout', 'cards');
+  // Na TV não há botão de "assistido" por episódio: cada episódio é uma única parada do controle.
+  await expect(page.getByTestId('episodes').locator('button')).toHaveCount(0);
+  await page.locator('main a, main button').first().focus();
+  for (let i = 0; i < 8 && !(await focusedEpisode()); i++) await page.keyboard.press('ArrowDown');
+  expect(await focusedEpisode()).toMatchObject({ label: '1. Chegada', background: 'rgb(255, 255, 255)' });
+  await page.keyboard.press('ArrowDown');
+  expect(await focusedEpisode()).toMatchObject({ label: '2. Neblina', background: 'rgb(255, 255, 255)' });
+  await shot('14-serie-cartoes-foco');
+  // Temporada 2 (sem dados por episódio): grade, com o mesmo destaque no foco.
+  await page.getByRole('button', { name: 'Temporada 2' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('episodes')).toHaveAttribute('data-layout', 'grid');
+  await expect(page.getByTestId('episodes').locator('button')).toHaveCount(0);
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(focusedEpisode).toMatchObject({ label: '1. Retorno', background: 'rgb(255, 255, 255)' });
+  expect((await focusedEpisode())!.transform).not.toBe('none');
+  await shot('15-serie-grade-foco');
+  expect(errors).toEqual([]);
+});

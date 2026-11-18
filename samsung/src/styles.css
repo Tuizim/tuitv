@@ -26,6 +26,13 @@ html[data-platform='tizen'] :focus:not(input):not(textarea):not(select):not(.gro
   color: inherit !important;
 }
 
+/* Episódios (cartões e blocos da grade): foco padrão da TV (fundo branco) e um leve aumento, por cima dos vizinhos. */
+html[data-platform='tizen'] [data-episode]:focus {
+  transform: scale(1.04);
+  position: relative;
+  z-index: 5;
+}
+
 /* Botões padronizados da ficha e do player: mesma altura, crescem levemente no foco. */
 html[data-platform='tizen'] .tv-action:focus,
 html[data-platform='tizen'] .tv-ctl:focus {

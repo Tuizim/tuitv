@@ -12,7 +12,7 @@ import { Synopsis } from '@/components/Synopsis';
 import { Thumb } from '@/components/Thumb';
 import { Chip, Empty, IconButton, cx } from '@/components/ui';
 import { RemoteStatus } from '@/components/Catalog';
-import { itemHref, useRemoteSeries } from '@/lib/hooks';
+import { isTv, itemHref, useRemoteSeries } from '@/lib/hooks';
 import { formatDuration, useT } from '@/lib/i18n';
 import { useSeriesInfo } from '@/lib/meta';
 import { useResolver, useStore } from '@/lib/store';
@@ -156,6 +156,7 @@ function EpisodeCard({
   onWatched: (watched: boolean) => void;
 }) {
   const t = useT();
+  const tv = isTv();
   const number = episode.series?.episode ?? 0;
   const title = episodeTitle(episode.name, seriesTitle) ?? (number ? t('Episódio {n}', { n: number }) : episode.name);
   const watched = !!entry?.completed;
@@ -166,13 +167,13 @@ function EpisodeCard({
       <Link
         href={itemHref(episode)}
         aria-label={`${number ? `${number}. ` : ''}${title}`}
-        className="group flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 -outline-offset-2 sm:gap-4 sm:p-3"
+        className="group/ep flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 -outline-offset-2 sm:gap-4 sm:p-3"
         data-episode={episode.id}
       >
         <span className="hidden w-7 shrink-0 text-center text-2xl font-bold text-muted tabular-nums sm:block">{number || '•'}</span>
-        <span className="relative w-32 shrink-0 overflow-hidden rounded-lg bg-surface ring-1 ring-line transition group-hover:ring-2 group-hover:ring-accent group-focus-visible:ring-2 group-focus-visible:ring-accent sm:w-48">
+        <span className="relative w-32 shrink-0 overflow-hidden rounded-lg bg-surface ring-1 ring-line transition group-hover/ep:ring-2 group-hover/ep:ring-accent group-focus-visible/ep:ring-2 group-focus-visible/ep:ring-accent sm:w-48">
           <Thumb src={episode.logo ?? fallbackImage} name={title} fit="cover" className="aspect-video w-full text-lg" />
-          <span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+          <span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition group-hover/ep:opacity-100 group-focus-visible/ep:opacity-100">
             <span className="flex size-10 items-center justify-center rounded-full border-2 border-white bg-black/40">
               <Play className="size-5 text-white" fill="currentColor" />
             </span>
@@ -194,14 +195,16 @@ function EpisodeCard({
           {episode.description && <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted sm:line-clamp-3 sm:text-sm">{episode.description}</span>}
         </span>
       </Link>
+      {!tv && (
       <IconButton
-        label={watched ? t('Marcar como não assistido') : t('Marcar como assistido')}
-        aria-pressed={watched}
-        onClick={() => onWatched(!watched)}
-        className={watched ? 'text-success' : ''}
-      >
-        <Check className="size-5" />
-      </IconButton>
+          label={watched ? t('Marcar como não assistido') : t('Marcar como assistido')}
+          aria-pressed={watched}
+          onClick={() => onWatched(!watched)}
+          className={watched ? 'text-success' : ''}
+        >
+          <Check className="size-5" />
+        </IconButton>
+      )}
     </li>
   );
 }
@@ -224,6 +227,7 @@ function EpisodeTile({
   onWatched: (watched: boolean) => void;
 }) {
   const t = useT();
+  const tv = isTv();
   const number = episode.series?.episode ?? 0;
   const own = episodeTitle(episode.name, seriesTitle);
   const label = own ?? (number ? t('Episódio {n}', { n: number }) : episode.name);
@@ -237,7 +241,7 @@ function EpisodeTile({
         aria-label={`${number ? `${number}. ` : ''}${label}`}
         data-episode={episode.id}
         className={cx(
-          'group flex h-full min-h-32 flex-col rounded-xl border p-3 transition sm:p-4',
+          'flex h-full min-h-32 flex-col rounded-xl border p-3 transition sm:p-4',
           next ? 'border-accent bg-accent/12' : 'border-line bg-surface/70 hover:border-accent/70',
           watched && !next && 'opacity-60',
         )}
@@ -269,14 +273,16 @@ function EpisodeTile({
           </span>
         )}
       </Link>
+      {!tv && (
       <IconButton
-        label={watched ? t('Marcar como não assistido') : t('Marcar como assistido')}
-        aria-pressed={watched}
-        onClick={() => onWatched(!watched)}
-        className={cx('absolute right-1 bottom-1', watched ? 'text-success' : 'text-muted')}
-      >
-        <Check className="size-4" />
-      </IconButton>
+          label={watched ? t('Marcar como não assistido') : t('Marcar como assistido')}
+          aria-pressed={watched}
+          onClick={() => onWatched(!watched)}
+          className={cx('absolute right-1 bottom-1', watched ? 'text-success' : 'text-muted')}
+        >
+          <Check className="size-4" />
+        </IconButton>
+      )}
     </li>
   );
 }
