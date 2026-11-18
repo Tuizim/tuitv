@@ -17,6 +17,7 @@ import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -127,6 +128,27 @@ class PhoneUiTest {
         waitFor("Nos favoritos")
         tap("Assistir")
         waitFor("Áudio e legendas")
+    }
+
+    @Test
+    fun topoComMarcaPilulasFixasEHistorico() {
+        seed()
+        show()
+        waitFor("Canais ao vivo")
+        compose.onNodeWithContentDescription("TuiTV").assertExists()
+        // Numa seção, as outras pílulas continuam à vista (não somem como antes).
+        tap(Txt.MOVIES)
+        waitFor("O Grande Filme (2019)")
+        compose.onNodeWithContentDescription("TuiTV").assertExists()
+        waitFor(Txt.SERIES)
+        compose.onAllNodesWithText(Txt.LIVE).fetchSemanticsNodes().size.let { assert(it >= 2) { "pílula e aba de TV ao vivo" } }
+        // Tocar a pílula ativa volta ao Início.
+        tap(Txt.MOVIES)
+        waitFor("Canais ao vivo")
+        // O relógio do topo abre o histórico.
+        compose.onNodeWithContentDescription(Txt.HISTORY).performClick()
+        compose.waitForIdle()
+        waitFor(Txt.HISTORY)
     }
 
     @Test

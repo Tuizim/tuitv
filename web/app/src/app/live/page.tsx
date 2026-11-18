@@ -164,7 +164,8 @@ function Live() {
     <>
     {fullscreen}
     <div className="-mx-4 -mt-4 grid lg:mx-0 lg:mt-0 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <div className="sticky top-16 z-20 bg-bg lg:static">
+      {/* No celular o topo inclui as pílulas fixas (Séries, Filmes, TV ao vivo). */}
+      <div className="sticky top-16 z-20 bg-bg max-md:top-28 lg:static">
         {current ? (
           <Player
             key="player"

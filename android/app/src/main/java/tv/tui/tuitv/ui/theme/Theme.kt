@@ -17,6 +17,9 @@ object TuiColors {
     val NavyRaised = Color(0xFF172B46)
     val NavyDeep = Color(0xFF0B111D)
     val Cyan = Color(0xFF38BDF8)
+    /** Pontas do gradiente do logotipo (img/tuitv-logo.png), usadas no "TV" do topo do celular. */
+    val LogoBlue = Color(0xFF1E90FF)
+    val LogoPurple = Color(0xFF9D2BF5)
     val White = Color(0xFFFFFFFF)
     val Line = Color(0xFF22344F)
     val Muted = Color(0xFF93A4BB)

@@ -29,7 +29,7 @@ import { useUi } from '@/lib/hooks';
 import { importErrorText, useT } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { PinDialog } from './dialogs';
-import { CatMark, Logo } from './Logo';
+import { CatMark, Logo, Wordmark } from './Logo';
 import { IconButton, Notice, Spinner, cx } from './ui';
 
 interface NavItem {
@@ -55,7 +55,7 @@ export const SECONDARY: NavItem[] = [
 
 /** Celular: barra inferior enxuta, como nos apps de streaming. Filmes e Séries ficam nos atalhos do topo do Início. */
 const BOTTOM = ['/', '/live', '/favorites'];
-/** Celular: atalhos em pílula abaixo do cabeçalho, como os filtros do topo do app da Netflix. */
+/** Celular: atalhos em pílula fixos abaixo do cabeçalho, como os filtros do topo dos apps da Netflix, Prime e HBO. */
 const CHIPS = ['/series', '/movies', '/live'];
 /** Telas de um item (ficha, série, player, busca): no celular o topo mostra só o voltar e a busca. */
 const DETAIL = ['/series/view', '/series/continue', '/title', '/watch', '/search'];
@@ -84,8 +84,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState(false);
   const [searching, setSearching] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  // Celular: os atalhos do topo recolhem ao rolar para baixo e voltam ao rolar para cima.
-  const [chipsHidden, setChipsHidden] = useState(false);
   const [pin, setPin] = useState(false);
   const [online, setOnline] = useState(true);
   const [install, setInstall] = useState<InstallPrompt | null>(null);
@@ -130,14 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setOnline(navigator.onLine);
     const on = () => setOnline(true);
     const off = () => setOnline(false);
-    let lastY = window.scrollY;
-    const onScroll = () => {
-      const y = window.scrollY;
-      setScrolled(y > 8);
-      if (y < 80 || y < lastY - 6) setChipsHidden(false);
-      else if (y > lastY + 6) setChipsHidden(true);
-      if (Math.abs(y - lastY) > 6) lastY = y;
-    };
+    const onScroll = () => setScrolled(window.scrollY > 8);
     const onInstall = (event: Event) => {
       event.preventDefault();
       setInstall(event as InstallPrompt);
@@ -176,8 +167,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const searchOpen = searching || query.length > 0;
   const home = pathname === '/';
   const detail = DETAIL.some((href) => isActive(pathname, href));
-  const section = detail ? undefined : [...PRIMARY, ...SECONDARY].find((n) => n.href !== '/' && isActive(pathname, n.href));
-  const withChips = home || pathname === '/movies' || pathname === '/series';
+  // Início, Séries, Filmes e TV ao vivo: a marca no topo e as pílulas fixas logo abaixo.
+  const withChips = home || CHIPS.includes(pathname);
+  const section = detail || withChips ? undefined : [...PRIMARY, ...SECONDARY].find((n) => n.href !== '/' && isActive(pathname, n.href));
 
   const extras = (
     <>
@@ -229,11 +221,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header
         className={cx(
           'fixed inset-x-0 top-0 z-40 px-4 transition-colors duration-300 lg:px-12',
-          scrolled || menu ? 'border-b border-line/60 bg-bg/95 backdrop-blur' : 'bg-gradient-to-b from-black/80 via-black/40 to-transparent',
+          scrolled || menu ? 'border-b border-line/60 bg-bg/95 backdrop-blur' : 'bg-gradient-to-b from-black/90 via-black/60 to-transparent',
         )}
       >
         <div className="flex h-16 items-center gap-2">
-          {/* Celular: o topo diz onde se está — o gato no Início, o nome da seção nas abas e o voltar nas fichas. */}
+          {/* Celular: a marca nas abas principais, o nome da seção nas demais e o voltar nas fichas. */}
           {detail ? (
             <button
               type="button"
@@ -247,7 +239,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className={cx('min-w-0 truncate text-2xl font-extrabold tracking-tight md:hidden', searchOpen && 'max-sm:hidden')}>{t(section.label)}</p>
           ) : (
             <Link href="/" aria-label="TuiTV" className={cx('shrink-0 rounded-lg md:hidden', searchOpen && 'max-sm:hidden')}>
-              <CatMark className="size-9" />
+              <Wordmark />
             </Link>
           )}
           {/* Na TV o logotipo é só marca: não recebe o foco do controle (Início fica no menu). */}
@@ -317,6 +309,19 @@ export function AppShell({ children }: { children: ReactNode }) {
             />
           </form>
 
+          {/* Celular: atalho para o histórico ao lado da busca, como os ícones do topo dos apps de streaming. */}
+          {!detail && !searchOpen && (
+            <Link
+              href="/history"
+              aria-label={t('Histórico')}
+              title={t('Histórico')}
+              aria-current={isActive(pathname, '/history') ? 'page' : undefined}
+              className={cx('flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-surface-2 md:hidden', isActive(pathname, '/history') && 'text-accent')}
+            >
+              <History className="size-5" />
+            </Link>
+          )}
+
           <div
             ref={menuRef}
             className="relative hidden md:block"
@@ -358,24 +363,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       {withChips && (
         <nav
           aria-label={t('Explorar')}
-          className={cx('-mx-4 flex gap-2 overflow-x-auto px-4 transition-all duration-300 md:hidden', chipsHidden ? 'pointer-events-none max-h-0 pb-0 opacity-0' : 'max-h-14 pb-3 opacity-100')}
+          className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-3 md:hidden"
         >
-          {/* Numa seção, a pílula dela fica preenchida e o X volta ao Início. */}
-          {!home && (
-            <Link href="/" aria-label={t('Início')} className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/40">
-              <X className="size-4" />
-            </Link>
-          )}
+          {/* As três pílulas ficam sempre à vista; a da seção atual fica preenchida e tocá-la de novo volta ao Início. */}
           {CHIPS.map((href) => {
             const item = PRIMARY.find((n) => n.href === href)!;
             const active = isActive(pathname, href);
-            if (!home && !active) return null;
             return (
               <Link
                 key={href}
-                href={href}
+                href={active ? '/' : href}
                 aria-current={active ? 'page' : undefined}
-                className={cx('flex h-9 shrink-0 items-center rounded-full border px-4 text-sm font-semibold', active ? 'border-white bg-white text-[#070c16]' : 'border-white/40 text-ink')}
+                className={cx('flex h-9 shrink-0 items-center rounded-full border px-4 text-sm font-semibold', active ? 'border-white bg-white text-[#070c16]' : 'border-white/30 bg-white/5 text-ink')}
               >
                 {t(item.label)}
               </Link>
