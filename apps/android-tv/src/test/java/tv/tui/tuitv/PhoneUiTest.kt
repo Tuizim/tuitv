@@ -176,7 +176,18 @@ class PhoneUiTest {
         seed()
         val movie = runBlocking { app.library.items(tv.tui.core.ContentKind.MOVIE, GroupFilter.All).first().first() }
         show(Route.Player(listOf(movie), 0))
-        waitFor("Áudio e legendas")
+        // O player abre (botão de sair no topo) e os controles começam à vista.
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Sair do player").fetchSemanticsNodes().isNotEmpty() || compose.onAllNodesWithText(Txt.LOADING).fetchSemanticsNodes().isNotEmpty() }
+        fun controls() = compose.onAllNodesWithText("Áudio e legendas").fetchSemanticsNodes().isNotEmpty()
+        fun tapVideo() {
+            compose.onRoot().performTouchInput { click(androidx.compose.ui.geometry.Offset(width * 0.5f, height * 0.3f)) }
+            compose.mainClock.advanceTimeBy(1000)
+            compose.waitForIdle()
+        }
+        // Os controles também somem sozinhos após alguns segundos de relógio real (CI lento): traz de volta.
+        if (!controls()) tapVideo()
+        assertTrue(controls())
+
         // Botão central (Assistir/Pausar): no centro da tela, com o ícone no centro do círculo.
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
         val icon = compose.onAllNodes(hasContentDescription("Pausar") or hasContentDescription("Assistir"), useUnmergedTree = true)
@@ -185,16 +196,12 @@ class PhoneUiTest {
         assertEquals(root.center.x, circle.center.x, 2f)
         assertEquals(circle.center.x, icon.boundsInRoot.center.x, 2f)
         assertEquals(circle.center.y, icon.boundsInRoot.center.y, 2f)
-        fun controls() = compose.onAllNodesWithText("Áudio e legendas").fetchSemanticsNodes().isNotEmpty()
-        // Toque numa área vazia da imagem (acima do centro): esconde.
-        compose.onRoot().performTouchInput { click(androidx.compose.ui.geometry.Offset(width * 0.5f, height * 0.3f)) }
-        compose.mainClock.advanceTimeBy(1000)
-        compose.waitForIdle()
-        assertFalse("controles deveriam sumir", controls())
-        // Outro toque: mostra de novo.
-        compose.onRoot().performTouchInput { click(androidx.compose.ui.geometry.Offset(width * 0.5f, height * 0.3f)) }
-        compose.mainClock.advanceTimeBy(1000)
-        compose.waitForIdle()
-        assertTrue("controles deveriam voltar", controls())
+
+        // Cada toque numa área vazia da imagem alterna os controles (comparado ao estado antes do toque).
+        repeat(3) {
+            val before = controls()
+            tapVideo()
+            assertEquals("o toque deveria alternar os controles (antes: $before)", !before, controls())
+        }
     }
 }

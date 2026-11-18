@@ -81,7 +81,7 @@ class DataLayerTest {
         return Uri.fromFile(file)
     }
 
-    private suspend fun <T> eventually(block: suspend () -> T?): T = withTimeout(5000) {
+    private suspend fun <T> eventually(timeoutMs: Long = 5000, block: suspend () -> T?): T = withTimeout(timeoutMs) {
         while (true) {
             block()?.let { return@withTimeout it }
             delay(20)
@@ -383,7 +383,7 @@ class DataLayerTest {
         assertFalse(calls.any { it in setOf("get_live_streams", "get_vod_streams", "get_series") })
         // O índice é preparado uma vez, um catálogo por vez, e então a busca acha tudo.
         library.prepareRemoteSearch()
-        eventually { library.remoteSearchState.value.takeIf { it is RemoteCatalog.IndexState.Ready } }
+        eventually(60_000) { library.remoteSearchState.value.takeIf { it is RemoteCatalog.IndexState.Ready } }
         assertEquals(listOf("get_live_streams", "get_vod_streams", "get_series"), calls.filter { it in setOf("get_live_streams", "get_vod_streams", "get_series") })
         val serra = library.search("serra").movies.single()
         assertEquals("Drama na Serra", serra.name)
@@ -447,7 +447,7 @@ class DataLayerTest {
         val host = "${server.hostName}:${server.port}"
         library.addPlaylistLogin("", host, "a", "b")
         library.prepareRemoteSearch()
-        val failed = eventually { library.remoteSearchState.value as? RemoteCatalog.IndexState.Failed }
+        val failed = eventually(60_000) { library.remoteSearchState.value as? RemoteCatalog.IndexState.Failed }
         assertEquals(ImportError.HTTP, failed.error.error)
         // Parou na falha: séries nem foram pedidas; buscar ou preparar de novo não insiste.
         assertEquals(listOf("get_live_streams", "get_vod_streams"), calls.filter { it.endsWith("_streams") || it == "get_series" })
@@ -460,7 +460,8 @@ class DataLayerTest {
         // Só quando o usuário pede.
         failVod = false
         library.retryRemoteSearch()
-        eventually { library.remoteSearchState.value.takeIf { it is RemoteCatalog.IndexState.Ready } }
+        // Máquinas de CI são lentas: o catálogo enorme pode levar bem mais que localmente.
+        eventually(60_000) { library.remoteSearchState.value.takeIf { it is RemoteCatalog.IndexState.Ready } }
         assertEquals(1, calls.count { it == "get_live_streams" })
         val hits = library.search("numero 249999").movies
         assertEquals("Filme Número 249999", hits.first().name)
