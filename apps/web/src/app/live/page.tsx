@@ -4,6 +4,9 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Tv } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useBackLayer } from '@/lib/back';
+import { isTv } from '@/lib/platform';
 import { normalizeText, programmeProgress } from '@tuitv/business-rules';
 import type { MediaItem } from '@tuitv/shared-models';
 import { FavoriteButton, UnavailableBadge } from '@/components/cards';
@@ -77,9 +80,21 @@ function Live() {
     return list;
   }, [lib, group, filter, favorites, resolve]);
 
+  // TV: OK no canal abre o player em tela cheia; Voltar fecha e devolve o foco ao canal na lista.
+  const tv = isTv();
+  const [full, setFull] = useState(false);
+  const closeFull = () => {
+    setFull(false);
+    window.setTimeout(() => {
+      document.querySelector<HTMLElement>('[data-testid="channel-list"] [aria-current="true"], [data-testid="channel-list"] button')?.focus({ preventScroll: true });
+    }, 60);
+  };
+  useBackLayer(full, closeFull);
+
   const select = (item: MediaItem) => {
     setSelectedId(item.id);
     void kvSet('lastLive', item.id);
+    if (tv) setFull(true);
   };
 
   /** Troca rápida de canais dentro da lista filtrada. */
@@ -87,7 +102,10 @@ function Live() {
     if (!channels.length) return;
     const index = current ? channels.findIndex((c) => c.id === current.id) : -1;
     const next = channels[(index + delta + channels.length) % channels.length];
-    if (next) select(next);
+    if (next) {
+      setSelectedId(next.id);
+      void kvSet('lastLive', next.id);
+    }
   };
 
   if (lib.live.length === 0 && lib.liveGroups.length === 0 && !current) {
@@ -99,13 +117,36 @@ function Live() {
     );
   }
 
+  const fullscreen =
+    tv && full && current
+      ? createPortal(
+          <div className="fixed inset-0 z-[65] bg-black" data-testid="tv-watch">
+            <Player
+              tv
+              key="tv-live"
+              item={current}
+              subtitle={current.group}
+              className="size-full"
+              onPrev={() => step(-1)}
+              onNext={() => step(1)}
+              onProgress={(played) => recordPlayback(played, 0, 0)}
+            />
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
-    <div className="-mx-4 -mt-4 grid lg:mx-0 lg:mt-0 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <>
+    {fullscreen}
+    {/* Com o player em tela cheia, a página por trás não recebe o foco do controle. */}
+    <div inert={tv && full} className="-mx-4 -mt-4 grid lg:mx-0 lg:mt-0 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div className="sticky top-16 z-20 bg-bg lg:static">
-        {current ? (
+        {current && !(tv && full) ? (
           <Player
             key="player"
             item={current}
+            focusable={!tv}
             className="aspect-video w-full lg:rounded-2xl"
             onPrev={() => step(-1)}
             onNext={() => step(1)}
@@ -153,6 +194,7 @@ function Live() {
         )}
       </div>
     </div>
+    </>
   );
 }
 

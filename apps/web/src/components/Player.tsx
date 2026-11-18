@@ -24,6 +24,7 @@ import type { AspectMode, MediaItem } from '@tuitv/shared-models';
 import { maskUrl } from '@tuitv/validation';
 import { formatClock, useT } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
+import { useBackLayer } from '@/lib/back';
 import { Button, Spinner, cx } from './ui';
 
 type Engine = 'hls' | 'mpegts' | 'native';
@@ -175,11 +176,13 @@ export interface PlayerProps {
   tv?: boolean;
   /** Rótulo do botão "próximo" no modo TV (ex.: "Próximo episódio"). */
   nextLabel?: string;
+  /** `false`: prévia que não recebe o foco do controle (TV ao vivo na TV, antes da tela cheia). */
+  focusable?: boolean;
 }
 
 type Flash = 'play' | 'pause' | 'back' | 'forward';
 
-export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext, subtitle, className, tv = false, nextLabel }: PlayerProps) {
+export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext, subtitle, className, tv = false, nextLabel, focusable = true }: PlayerProps) {
   const t = useT();
   const settings = useStore((s) => s.settings);
   const updateSettings = useStore((s) => s.updateSettings);
@@ -610,6 +613,13 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
   const onTvKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     wake();
+    // Ao vivo: ▲▼ sempre trocam de canal (também com o foco no botão de erro), como no controle da TV.
+    if (isLive && menu === null && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      if (event.key === 'ArrowUp') onPrev?.();
+      else onNext?.();
+      event.preventDefault();
+      return;
+    }
     if (target !== containerRef.current) {
       // Nos botões: ◀▶ e OK são deles (navegação espacial); ▲ volta à barra de progresso.
       if (event.key === 'ArrowUp' && menu === null && !target.closest('[role="menu"]')) {
@@ -748,7 +758,7 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
   return (
     <div
       ref={containerRef}
-      tabIndex={0}
+      tabIndex={focusable ? 0 : -1}
       onKeyDown={onKeyDown}
       onFocus={(event) => setBarFocused(event.target === event.currentTarget)}
       onPointerMove={wake}
@@ -1050,6 +1060,8 @@ function TrackMenu({
   onSelect: (id: number) => void;
   buttonClass: string;
 }) {
+  // Voltar do controle fecha o menu de faixas (sem sair do player).
+  useBackLayer(open, onToggle);
   return (
     <div className="relative">
       <button type="button" className={buttonClass} onClick={onToggle} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open}>

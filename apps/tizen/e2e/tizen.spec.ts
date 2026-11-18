@@ -59,8 +59,14 @@ test('só com o controle: lista por login, canais, player, troca de canal e Volt
   await page.keyboard.press('Enter');
   await expect(page.getByRole('switch', { name: 'Permitir endereços da rede local' })).toHaveAttribute('aria-checked', 'true');
 
-  // Voltar do controle: volta para a tela inicial.
+  // Voltar do controle: com a tela rolada, primeiro volta ao topo (como na Netflix); depois, à tela inicial.
+  const scrolled = await page.evaluate(() => window.scrollY > 120);
   await remote(page, BACK);
+  if (scrolled) {
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(5);
+    await expect(page).toHaveURL(/#\/settings/);
+    await remote(page, BACK);
+  }
   await expect(page.getByRole('heading', { name: 'Boas-vindas ao TuiTV' })).toBeVisible();
   expect(new URL(page.url()).hash).toMatch(/^(#\/?)?$/);
 
@@ -273,4 +279,46 @@ test('fileiras: ▲▼ voltam ao cartão em que o usuário estava', async ({ pag
   expect(await focused(page)).toBe('A3');
   await page.keyboard.press('ArrowDown');
   expect(await focused(page)).toBe(below);
+});
+
+test('Voltar como na Netflix: fecha o seletor sem sair da tela; seletor sem caixa de busca na TV', async ({ page }) => {
+  const errors = await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/live'));
+  const dropdown = page.getByRole('button', { name: 'Categoria' });
+  await dropdown.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('listbox')).toBeVisible();
+  await expect(page.locator('[role="listbox"]').locator('xpath=..').locator('input')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('role'))).toBe('option');
+  await remote(page, BACK);
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/live/);
+  await expect(dropdown).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test('TV ao vivo: OK no canal abre a tela cheia; ▲▼ trocam de canal; Voltar volta à lista', async ({ page }) => {
+  const shot = (name: string) => page.screenshot({ path: new URL(`../build/screenshots/${name}.png`, import.meta.url).pathname });
+  const errors = await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/live'));
+  const list = page.getByTestId('channel-list');
+  await list.getByRole('button', { name: /Canal Um HD/ }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('tv-watch')).toBeVisible();
+  const player = page.getByTestId('tv-watch').getByTestId('player');
+  await expect(player).toBeFocused();
+  const title = page.getByTestId('tv-watch').locator('p.text-3xl');
+  const before = await title.innerText();
+  await page.keyboard.press('ArrowDown');
+  await expect(title).not.toHaveText(before);
+  await shot('07-ao-vivo-tela-cheia');
+  await remote(page, BACK);
+  await expect(page.getByTestId('tv-watch')).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/live/);
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-testid="channel-list"]'))).toBe(true);
+  // O logotipo do topo não é alvo do controle.
+  expect(await page.getByRole('link', { name: 'TuiTV' }).getAttribute('tabindex')).toBe('-1');
+  expect(errors).toEqual([]);
 });

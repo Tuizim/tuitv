@@ -34,8 +34,8 @@ html[data-platform='tizen'] .tv-ctl:focus {
 
 /* Cartões: sem anel; a capa cresce e brilha. */
 html[data-platform='tizen'] .group > div:first-child {
-  transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
-  will-change: transform;
+  /* Só transform anima (feito pela GPU); a sombra entra sem transição. */
+  transition: transform 0.15s ease-out;
 }
 html[data-platform='tizen'] .group:focus > div:first-child {
   transform: scale(1.08);
@@ -43,7 +43,6 @@ html[data-platform='tizen'] .group:focus > div:first-child {
 }
 html[data-platform='tizen'] .group > p:first-of-type {
   color: var(--tui-muted);
-  transition: color 0.18s;
 }
 html[data-platform='tizen'] .group:focus > p:first-of-type {
   color: var(--tui-text);
@@ -106,4 +105,23 @@ html[data-platform='tizen'] a.text-accent:focus {
   padding: 4px 10px;
   margin: -4px -10px;
   border-radius: 8px;
+}
+
+/*
+ * Desempenho nas TVs: desfoque (filter: blur, backdrop-filter) é o efeito mais caro para a GPU
+ * delas e deixa a navegação travada. Na TV os fundos ficam só translúcidos.
+ */
+html[data-platform='tizen'] * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-platform='tizen'] .blur-3xl,
+html[data-platform='tizen'] .blur-2xl,
+html[data-platform='tizen'] .blur-xl {
+  filter: none !important;
+  opacity: 0.18 !important;
+}
+/* Rolagem suave é feita pelo controle (remote.ts); a do CSS duplicaria a animação. */
+html[data-platform='tizen'] .scroll-smooth {
+  scroll-behavior: auto;
 }

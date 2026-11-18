@@ -1,5 +1,6 @@
 'use client';
 
+import { isTv } from '@/lib/platform';
 import {
   CalendarDays,
   Clapperboard,
@@ -194,7 +195,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           scrolled || menu ? 'border-b border-line/60 bg-bg/95 backdrop-blur' : 'bg-gradient-to-b from-black/80 to-transparent',
         )}
       >
-        <Link href="/" aria-label="TuiTV" className={cx('shrink-0 rounded-lg', searchOpen && 'max-sm:hidden')}>
+        {/* Na TV o logotipo é só marca: não recebe o foco do controle (Início fica no menu). */}
+        <Link href="/" aria-label="TuiTV" tabIndex={isTv() ? -1 : undefined} className={cx('shrink-0 rounded-lg', searchOpen && 'max-sm:hidden')}>
           <Logo className="text-2xl" />
         </Link>
 

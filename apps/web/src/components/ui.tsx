@@ -1,5 +1,7 @@
 'use client';
 
+import { useBackLayer } from '@/lib/back';
+import { isTv } from '@/lib/platform';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 import { useT } from '@/lib/i18n';
@@ -172,7 +174,8 @@ export function Dropdown<T extends string | number>({
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const current = options.find((option) => option.value === value);
-  const searchable = options.length > 10;
+  // Na TV o seletor abre direto na lista (digitar com o controle é lento); a busca fica para a Web.
+  const searchable = options.length > 10 && !isTv();
 
   const visible = useMemo(() => {
     const q = normalize(filter.trim());
@@ -197,6 +200,8 @@ export function Dropdown<T extends string | number>({
     setFilter('');
     if (focusButton) rootRef.current?.querySelector<HTMLElement>('button')?.focus();
   };
+  // Voltar do controle fecha o seletor e devolve o foco a ele (sem sair da tela).
+  useBackLayer(open, () => close());
 
   const move = (delta: number) => {
     const items = [...(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])];

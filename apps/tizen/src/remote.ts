@@ -4,8 +4,10 @@
  *  - Navegação espacial: as setas movem o foco para o elemento mais próximo naquela direção
  *    (a interface Web foi feita para mouse, toque e Tab; a TV só tem setas e OK).
  *  - Teclas de mídia e de canal do controle são traduzidas para as teclas que o player Web já trata.
- *  - Voltar: fecha diálogo → sai da tela cheia → volta uma tela → na tela inicial, fecha o aplicativo.
+ *  - Voltar, como na Netflix: fecha o que estiver aberto (seletor, menu, player em tela cheia, diálogo)
+ *    → volta ao topo da tela se ela estiver rolada → volta uma tela → na tela inicial, fecha o aplicativo.
  */
+import { runBack } from '@/lib/back';
 import { getLocation, subscribe, takeAnchor } from './router';
 
 interface TizenApi {
@@ -78,21 +80,28 @@ function scope(): ParentNode {
   return dialogs.length ? dialogs[dialogs.length - 1]! : document;
 }
 
+/** Elementos que o controle pode focar (tabindex="-1" fica de fora, ex.: o logotipo). */
+function reachable(root: ParentNode): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.tabIndex >= 0);
+}
+
 export function focusables(root: ParentNode = scope()): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(isVisible);
+  return reachable(root).filter(isVisible);
 }
 
 /** Distância entre intervalos [a1,a2] e [b1,b2] (0 se sobrepostos). */
 const gap = (a1: number, a2: number, b1: number, b2: number) => Math.max(0, b1 - a2, a1 - b2);
 
 /** Elemento mais próximo na direção pedida (heurística de navegação espacial). */
-export function nearest(from: DOMRect, candidates: HTMLElement[], dir: Direction): HTMLElement | null {
-  let best: HTMLElement | null = null;
-  let bestScore = Infinity;
+export function nearest(from: DOMRect, candidates: HTMLElement[], dir: Direction, visible: (el: HTMLElement) => boolean = () => true): HTMLElement | null {
+  // Pontua só pela geometria (barato) e confere a visibilidade (cara: estilo computado) apenas
+  // dos melhores colocados — com centenas de cartões na tela, cada tecla fica bem mais leve.
+  const scored: { el: HTMLElement; score: number }[] = [];
   const cx = from.left + from.width / 2;
   const cy = from.top + from.height / 2;
   for (const el of candidates) {
     const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
     const ex = r.left + r.width / 2;
     const ey = r.top + r.height / 2;
     let primary: number;
@@ -125,13 +134,11 @@ export function nearest(from: DOMRect, candidates: HTMLElement[], dir: Direction
     const align = horizontal
       ? from.height > r.height * 1.5 ? Math.abs(r.top - from.top) : Math.abs(ey - cy)
       : from.width > r.width * 1.5 ? Math.abs(r.left - from.left) : Math.abs(ex - cx);
-    const score = primary + cross * 4 + align * 0.1;
-    if (score < bestScore) {
-      bestScore = score;
-      best = el;
-    }
+    scored.push({ el, score: primary + cross * 4 + align * 0.1 });
   }
-  return best;
+  scored.sort((a, b) => a.score - b.score);
+  for (const { el } of scored) if (visible(el)) return el;
+  return null;
 }
 
 /* ── Fileiras e rolagem no estilo Netflix ───────────────────────────────── */
@@ -173,7 +180,9 @@ const BOTTOM_SAFE = 0.78;
 /** Ao sair da faixa, o elemento é levado a ~30% da altura: sobra espaço para ver o que vem depois. */
 const PIVOT = 0.3;
 
-function focus(el: HTMLElement) {
+function focus(el: HTMLElement, smooth = true) {
+  // Tecla segurada: rolagem instantânea, para a tela acompanhar o foco sem acumular animações.
+  const behavior: ScrollBehavior = smooth ? 'smooth' : 'auto';
   el.focus({ preventScroll: true });
   remember(el);
   const row = rowOf(el);
@@ -181,7 +190,7 @@ function focus(el: HTMLElement) {
     // Cartão em foco sempre no início da fileira: a fileira desliza por baixo dele.
     const pad = parseFloat(window.getComputedStyle(row).paddingLeft) || 0;
     const delta = el.getBoundingClientRect().left - row.getBoundingClientRect().left - pad;
-    row.scrollTo({ left: Math.max(0, row.scrollLeft + delta), behavior: 'smooth' });
+    if (Math.abs(delta) > 1) row.scrollTo({ left: Math.max(0, row.scrollLeft + delta), behavior });
   }
   const parent = scrollParent(row ?? el);
   if (parent) {
@@ -192,7 +201,7 @@ function focus(el: HTMLElement) {
   const height = window.innerHeight;
   if (rect.top < TOP_SAFE || rect.bottom > height * BOTTOM_SAFE) {
     const target = rect.height > height * 0.6 ? TOP_SAFE : Math.max(TOP_SAFE, height * PIVOT);
-    window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - target), behavior: 'smooth' });
+    window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - target), behavior });
   }
 }
 
@@ -213,7 +222,7 @@ function caretAllowsLeaving(el: Element, dir: Direction): boolean {
 /** Foca o primeiro elemento útil da tela atual (player, conteúdo principal ou qualquer focável). */
 export function focusFirst() {
   const player = document.querySelector<HTMLElement>('[data-testid="player"]');
-  if (player && isVisible(player)) {
+  if (player && player.tabIndex >= 0 && isVisible(player)) {
     player.focus({ preventScroll: true });
     return;
   }
@@ -237,10 +246,10 @@ function onArrow(event: KeyboardEvent) {
     return;
   }
   if (!caretAllowsLeaving(active!, dir)) return;
-  const candidates = focusables().filter((el) => el !== active && !el.contains(active) && !active!.contains(el));
-  const found = nearest(active!.getBoundingClientRect(), candidates, dir);
+  const candidates = reachable(scope()).filter((el) => el !== active && !el.contains(active) && !active!.contains(el));
+  const found = nearest(active!.getBoundingClientRect(), candidates, dir, isVisible);
   event.preventDefault();
-  if (found) focus(preferRemembered(active!, found, dir));
+  if (found) focus(preferRemembered(active!, found, dir), !event.repeat);
 }
 
 function exitApp() {
@@ -253,6 +262,8 @@ function exitApp() {
 
 /** Botão Voltar do controle. */
 export function goBack() {
+  // 1. O que estiver aberto por cima (seletor, menu, player em tela cheia).
+  if (runBack()) return;
   const dialogs = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
   if (dialogs.length) {
     // Os diálogos da interface Web fecham com Escape.
@@ -262,6 +273,17 @@ export function goBack() {
   }
   if (document.fullscreenElement) {
     void document.exitFullscreen().catch(() => undefined);
+    return;
+  }
+  // 2. Tela rolada para baixo: volta ao topo e ao primeiro item, antes de sair dela.
+  if (window.scrollY > 120 && !document.querySelector('[data-testid="tv-watch"]')) {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const main = document.querySelector('main');
+    const first = main && focusables(main)[0];
+    if (first) {
+      first.focus({ preventScroll: true });
+      remember(first);
+    }
     return;
   }
   if (getLocation().pathname !== '/') {
