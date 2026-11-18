@@ -11,10 +11,8 @@ export const metadata: Metadata = {
   applicationName: 'TuiTV',
   manifest: `${base}/manifest.webmanifest`,
   icons: {
-    icon: [
-      { url: `${base}/icons/icon.svg`, type: 'image/svg+xml' },
-      { url: `${base}/icons/icon-192.png`, sizes: '192x192', type: 'image/png' },
-    ],
+    // Aba do navegador: só o gato em SVG (com o PNG na lista, o navegador escolhia o quadrado escuro).
+    icon: [{ url: `${base}/icons/icon.svg`, type: 'image/svg+xml', sizes: 'any' }],
     apple: `${base}/icons/apple-touch-icon.png`,
   },
   appleWebApp: { capable: true, title: 'TuiTV', statusBarStyle: 'black-translucent' },

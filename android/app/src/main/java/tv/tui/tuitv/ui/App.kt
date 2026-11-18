@@ -193,7 +193,8 @@ private fun TouchTopBar(back: Boolean, search: Boolean, onBack: () -> Unit, onSe
         } else {
             Spacer(Modifier.width(8.dp))
         }
-        Brand()
+        // Celular: só o gato, como na Web (o logotipo com o nome fica para o menu da TV).
+        Image(painterResource(R.drawable.tuitv_icone), contentDescription = "TuiTV", modifier = Modifier.size(36.dp), contentScale = ContentScale.Fit)
         Spacer(Modifier.weight(1f))
         if (search) IconAction(Icons.Filled.Search, Txt.SEARCH, onSearch)
     }
