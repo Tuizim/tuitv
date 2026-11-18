@@ -119,6 +119,7 @@ private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (
     }
     val memory = rememberFocusMemory("groups")
     val state = rememberLazyListState()
+    val showAll = allowAll()
     ColumnPivot {
     LazyColumn(
         // ◀ a partir do conteúdo volta sempre à categoria em que o usuário estava.
@@ -127,7 +128,7 @@ private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (
         verticalArrangement = Arrangement.spacedBy(6.dp),
         contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
     ) {
-        val all = listOf(GroupCount("*", groups?.sumOf { it.count } ?: 0)) + (groups ?: emptyList())
+        val all = (if (showAll) listOf(GroupCount("*", groups?.sumOf { it.count } ?: 0)) else emptyList()) + (groups ?: emptyList())
         itemsIndexed(all, key = { _, g -> "g:" + g.name }) { index, group ->
             val key = keyOf(group)
             val label = when (key) {
@@ -153,10 +154,20 @@ private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (
     }
 }
 
+/**
+ * "Todos" só sem login: num login, "Todos" baixaria o catálogo inteiro do servidor de uma vez
+ * (pesado para o aparelho e para o provedor). Para achar algo no catálogo inteiro, há a Busca.
+ */
+@Composable
+private fun allowAll(): Boolean {
+    val remote by library().hasRemote.collectAsStateWithLifecycle(false)
+    return !remote
+}
+
 /** Celular: categorias numa fileira de pílulas acima do conteúdo; toque escolhe na hora. */
 @Composable
 private fun GroupChips(groups: List<GroupCount>?, selected: String, onSelect: (String) -> Unit) {
-    val all = listOf(GroupCount("*", 0)) + (groups ?: emptyList())
+    val all = (if (allowAll()) listOf(GroupCount("*", 0)) else emptyList()) + (groups ?: emptyList())
     val state = rememberLazyListState()
     LazyRow(
         Modifier.fillMaxWidth(),

@@ -342,26 +342,23 @@ class Library(
             val id = tv.tui.core.seriesId(item.playlistId, info.seriesKey)
             if (!series.containsKey(id)) series[id] = SeriesCard(id, item.playlistId, info.seriesKey, info.title, item.logo, item.group, item.year, 0)
         }
-        // Logins não têm busca no servidor: o catálogo de cada tipo é pedido uma vez por sessão (só em memória).
-        val logins = remotePlaylists.first()
-        val remoteLive = ArrayList<MediaItem>()
-        val remoteMovies = ArrayList<MediaItem>()
-        val remoteSeries = ArrayList<RemoteSeries>()
-        if (logins.isNotEmpty()) {
-            for (kind in RemoteKind.entries) runCatching { remote.load(logins, kind, null) }
-            for (p in logins) {
-                val cache = remote.cached(p.id) ?: continue
-                remoteLive += cache.items(RemoteKind.LIVE, null).orEmpty().filter { blocked == null || !blocked(it.group, it.name) }
-                remoteMovies += cache.items(RemoteKind.MOVIE, null).orEmpty().filter { blocked == null || !blocked(it.group, it.name) }
-                remoteSeries += cache.series(null).orEmpty().filter { blocked == null || !blocked(it.group, it.title) }
-            }
-        }
+        // Logins: busca no índice do servidor (se já preparado) ou no que esta sessão já carregou.
+        // Nada é pedido ao servidor aqui: digitar não gera requisições ([prepareRemoteSearch]).
+        val hits = remote.search(remotePlaylists.first(), query, limit, blocked)
         SearchResults(
-            live = (ranked.filter { it.kind == ContentKind.LIVE } + searchIn(toSearchable(remoteLive) { it.name }, query, limit)).take(limit),
-            movies = (ranked.filter { it.kind == ContentKind.MOVIE } + searchIn(toSearchable(remoteMovies) { it.name }, query, limit)).take(limit),
-            series = (series.values + searchIn(toSearchable(remoteSeries) { it.title }, query, limit).map { it.toCard() }).take(limit),
+            live = (ranked.filter { it.kind == ContentKind.LIVE } + hits.live).distinctBy { it.id }.take(limit),
+            movies = (ranked.filter { it.kind == ContentKind.MOVIE } + hits.movies).distinctBy { it.id }.take(limit),
+            series = (series.values + hits.series.map { it.toCard() }).distinctBy { it.id }.take(limit),
         )
     }
+
+    /** Estado do índice de busca dos logins (preparando, pronto, falhou). */
+    val remoteSearchState: StateFlow<RemoteCatalog.IndexState> get() = remote.indexState
+
+    /** Prepara, uma vez por sessão, o índice de busca dos logins ativos (em segundo plano). */
+    suspend fun prepareRemoteSearch() = remote.prepareSearchIndex(remotePlaylists.first())
+
+    suspend fun retryRemoteSearch() = remote.retrySearchIndex(remotePlaylists.first())
 
     private fun currentRestriction(): ((String?, String) -> Boolean)? {
         val p = settingsStore.current.parental

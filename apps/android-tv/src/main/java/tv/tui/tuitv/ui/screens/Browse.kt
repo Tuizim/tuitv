@@ -95,6 +95,9 @@ import tv.tui.tuitv.ui.play
 import tv.tui.tuitv.ui.rememberFavoriteToggle
 import tv.tui.tuitv.ui.theme.TuiColors
 import tv.tui.tuitv.ui.toaster
+import tv.tui.tuitv.data.RemoteCatalog
+import tv.tui.tuitv.ui.components.ErrorText
+import tv.tui.core.normalizeText
 import tv.tui.tuitv.ui.device
 import tv.tui.tuitv.ui.components.ButtonRow
 import tv.tui.tuitv.ui.components.FillButtons
@@ -400,9 +403,16 @@ fun SearchScreen() {
     val toggleFavorite = rememberFavoriteToggle()
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<SearchResults?>(null) }
-    LaunchedEffect(query) {
+    val hasRemote by library.hasRemote.collectAsStateWithLifecycle(false)
+    val index by library.remoteSearchState.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    // A cada etapa do índice pronta, os resultados se atualizam (sem nova requisição).
+    val indexStep = (index as? RemoteCatalog.IndexState.Loading)?.done ?: if (index is RemoteCatalog.IndexState.Ready) -1 else -2
+    LaunchedEffect(query, indexStep) {
         delay(350)
         results = if (query.isBlank()) null else library.search(query)
+        // Logins: o índice do servidor é preparado uma única vez, só quando a busca é usada de fato.
+        if (hasRemote && normalizeText(query).length >= 2) library.prepareRemoteSearch()
     }
     val field = remember { FocusRequester() }
     RowsColumn {
@@ -411,6 +421,19 @@ fun SearchScreen() {
                 ScreenTitle(Txt.SEARCH, subtitle = if (device().compact) "Canais, filmes e séries de todas as listas ativas." else "Canais, filmes e séries de todas as listas ativas. Sem acentos e sem diferenciar maiúsculas.")
                 TvTextField(query, { query = it }, "Pesquisar", Modifier.widthIn(max = 560.dp).fillMaxWidth(), placeholder = "Nome do canal, filme ou série", imeAction = ImeAction.Search, focusRequester = field)
                 Spacer(Modifier.height(16.dp))
+                if (hasRemote && query.isNotBlank()) {
+                    when (val st = index) {
+                        is RemoteCatalog.IndexState.Loading -> Muted(
+                            "Preparando a busca no catálogo do servidor (${st.done} de ${st.total})… Os resultados aparecem conforme ficam prontos.",
+                            Modifier.padding(bottom = 12.dp),
+                        )
+                        is RemoteCatalog.IndexState.Failed -> Column(Modifier.padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ErrorText("Não foi possível preparar a busca no servidor: ${Txt.importError(st.error)}")
+                            ActionButton("Tentar novamente", { scope.launch { library.retryRemoteSearch() } }, icon = Icons.Filled.Refresh)
+                        }
+                        else -> Unit
+                    }
+                }
             }
         }
         val r = results

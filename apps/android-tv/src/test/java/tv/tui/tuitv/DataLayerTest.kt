@@ -38,6 +38,7 @@ import tv.tui.core.GroupCount
 import tv.tui.core.Parental
 import tv.tui.tuitv.data.BackupService
 import tv.tui.tuitv.data.GroupFilter
+import tv.tui.tuitv.data.RemoteCatalog
 import tv.tui.tuitv.data.ImportError
 import tv.tui.tuitv.data.ImportException
 import tv.tui.tuitv.data.Library
@@ -376,9 +377,27 @@ class DataLayerTest {
         assertEquals("Corrida Final (2022)", db.favorites().get(movie.id)!!.name)
         assertEquals("Vale Escuro", db.favorites().get(vale.id)!!.name)
 
-        // Busca: o catálogo de cada tipo é pedido uma vez e filtrado no aparelho.
-        assertEquals(listOf("Drama na Serra"), library.search("serra").movies.map { it.name })
-        assertTrue(calls.containsAll(listOf("get_live_streams", "get_vod_streams", "get_series")))
+        // Busca: digitar não pede nada ao servidor; só o que já foi carregado aparece.
+        assertEquals(listOf("Corrida Final (2022)"), library.search("corrida").movies.map { it.name })
+        assertEquals(emptyList<String>(), library.search("serra").movies.map { it.name })
+        assertFalse(calls.any { it in setOf("get_live_streams", "get_vod_streams", "get_series") })
+        // O índice é preparado uma vez, um catálogo por vez, e então a busca acha tudo.
+        library.prepareRemoteSearch()
+        eventually { library.remoteSearchState.value.takeIf { it is RemoteCatalog.IndexState.Ready } }
+        assertEquals(listOf("get_live_streams", "get_vod_streams", "get_series"), calls.filter { it in setOf("get_live_streams", "get_vod_streams", "get_series") })
+        val serra = library.search("serra").movies.single()
+        assertEquals("Drama na Serra", serra.name)
+        assertEquals("Filmes | Drama", serra.group)
+        assertEquals("http://$host/movie/jo%C3%A3o/s%26nha/502.mkv", serra.url)
+        // A ficha encontra o item da busca pelo id.
+        assertEquals("Drama na Serra", library.item(serra.id)!!.name)
+        assertEquals(listOf("Vale Escuro"), library.search("vale").series.map { it.title })
+        assertEquals(2021, library.search("vale").series.single().year)
+        // Novas buscas e novos pedidos de preparo não voltam ao servidor.
+        val before = calls.size
+        library.search("canal")
+        library.prepareRemoteSearch()
+        assertEquals(before, calls.size)
 
         // O guia do mesmo login é adicionado.
         eventually { library.epgSources.value.firstOrNull { it.url?.contains("xmltv.php") == true } }
@@ -395,6 +414,58 @@ class DataLayerTest {
         assertEquals("Vale Escuro", favorites.filterIsInstance<tv.tui.tuitv.data.FavoriteEntry.Series>().single().series.title)
         assertEquals("Canal Dois", session.item(abertos[1].id)!!.name)
         assertTrue(calls.none { it.startsWith("get_") && !it.endsWith("_categories") })
+    }
+
+    @Test
+    fun `busca no login - catalogo enorme lido em fluxo e falha nao insiste com o servidor`() = runBlocking {
+        val calls = Collections.synchronizedList(ArrayList<String>())
+        var failVod = true
+        // 250 mil filmes (~25 MB de JSON): o índice é montado sem guardar a resposta inteira.
+        val vod = buildString {
+            append('[')
+            for (i in 1..250_000) {
+                if (i > 1) append(',')
+                append("""{"num":$i,"name":"Filme Número $i","stream_type":"movie","stream_id":$i,"stream_icon":"http://img/$i.jpg","rating":"7","added":"1600000000","category_id":"10","container_extension":"mkv","custom_sid":null,"direct_source":""}""")
+            }
+            append(']')
+        }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val url = "http://x${request.target}".toHttpUrl()
+                val action = url.queryParameter("action") ?: ""
+                calls += action.ifEmpty { "login" }
+                val ok = { body: String -> MockResponse.Builder().body(body).build() }
+                return when (action) {
+                    "" -> ok("""{"user_info":{"auth":1,"status":"Active"}}""")
+                    "get_vod_categories" -> ok("""[{"category_id":"10","category_name":"Filmes"}]""")
+                    "get_live_streams" -> ok("""[{"stream_id":1,"name":"Canal","category_id":"1"}]""")
+                    "get_vod_streams" -> if (failVod) MockResponse.Builder().code(500).build() else ok(vod)
+                    else -> ok("[]")
+                }
+            }
+        }
+        val host = "${server.hostName}:${server.port}"
+        library.addPlaylistLogin("", host, "a", "b")
+        library.prepareRemoteSearch()
+        val failed = eventually { library.remoteSearchState.value as? RemoteCatalog.IndexState.Failed }
+        assertEquals(ImportError.HTTP, failed.error.error)
+        // Parou na falha: séries nem foram pedidas; buscar ou preparar de novo não insiste.
+        assertEquals(listOf("get_live_streams", "get_vod_streams"), calls.filter { it.endsWith("_streams") || it == "get_series" })
+        repeat(5) {
+            library.search("filme $it")
+            library.prepareRemoteSearch()
+        }
+        assertEquals(1, calls.count { it == "get_vod_streams" })
+
+        // Só quando o usuário pede.
+        failVod = false
+        library.retryRemoteSearch()
+        eventually { library.remoteSearchState.value.takeIf { it is RemoteCatalog.IndexState.Ready } }
+        assertEquals(1, calls.count { it == "get_live_streams" })
+        val hits = library.search("numero 249999").movies
+        assertEquals("Filme Número 249999", hits.first().name)
+        assertEquals("http://img/249999.jpg", hits.first().logo)
+        assertEquals(60, library.search("filme").movies.size)
     }
 
     @Test
