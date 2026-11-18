@@ -11,6 +11,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -19,11 +20,16 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -161,5 +167,34 @@ class PhoneUiTest {
         shot("celular-09-serie")
         tap("Temporada 2")
         shot("celular-10-serie-t2")
+    }
+
+    /** Player no celular deitado: toque na imagem esconde e mostra os controles. */
+    @Test
+    @Config(qualifiers = "w891dp-h411dp-land-xxhdpi")
+    fun playerToqueMostraEEscondeControles() {
+        seed()
+        val movie = runBlocking { app.library.items(tv.tui.core.ContentKind.MOVIE, GroupFilter.All).first().first() }
+        show(Route.Player(listOf(movie), 0))
+        waitFor("Áudio e legendas")
+        // Botão central (Assistir/Pausar): no centro da tela, com o ícone no centro do círculo.
+        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        val icon = compose.onAllNodes(hasContentDescription("Pausar") or hasContentDescription("Assistir"), useUnmergedTree = true)
+            .fetchSemanticsNodes().single()
+        val circle = icon.parent!!.boundsInRoot
+        assertEquals(root.center.x, circle.center.x, 2f)
+        assertEquals(circle.center.x, icon.boundsInRoot.center.x, 2f)
+        assertEquals(circle.center.y, icon.boundsInRoot.center.y, 2f)
+        fun controls() = compose.onAllNodesWithText("Áudio e legendas").fetchSemanticsNodes().isNotEmpty()
+        // Toque numa área vazia da imagem (acima do centro): esconde.
+        compose.onRoot().performTouchInput { click(androidx.compose.ui.geometry.Offset(width * 0.5f, height * 0.3f)) }
+        compose.mainClock.advanceTimeBy(1000)
+        compose.waitForIdle()
+        assertFalse("controles deveriam sumir", controls())
+        // Outro toque: mostra de novo.
+        compose.onRoot().performTouchInput { click(androidx.compose.ui.geometry.Offset(width * 0.5f, height * 0.3f)) }
+        compose.mainClock.advanceTimeBy(1000)
+        compose.waitForIdle()
+        assertTrue("controles deveriam voltar", controls())
     }
 }

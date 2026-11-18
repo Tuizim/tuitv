@@ -395,8 +395,14 @@ fun PlayerScreen(route: Route.Player) {
         flash = null
     }
     val scrubbing = scrubTo != null
-    val overlay = now < overlayUntil || scrubbing || controller.phase is Phase.Paused || controller.phase is Phase.Error
+    // Toque: o usuário esconde os controles quando quiser, mesmo com o vídeo pausado.
+    var hiddenByTouch by remember { mutableStateOf(false) }
+    /** Lido na hora (gestos e teclas não podem usar o valor de uma composição antiga). */
+    fun overlayVisible() = !hiddenByTouch &&
+        (System.currentTimeMillis() < overlayUntil || scrubTo != null || controller.phase is Phase.Paused || controller.phase is Phase.Error)
+    val overlay = !hiddenByTouch && (now < overlayUntil || scrubbing || controller.phase is Phase.Paused || controller.phase is Phase.Error)
     fun showOverlay() {
+        hiddenByTouch = false
         overlayUntil = System.currentTimeMillis() + OVERLAY_MS
         now = System.currentTimeMillis()
     }
@@ -465,7 +471,12 @@ fun PlayerScreen(route: Route.Player) {
     }
     /** Toque na imagem: mostra os controles ou, se estiverem à vista, esconde. */
     fun toggleOverlay() {
-        if (overlay) overlayUntil = 0 else showOverlay()
+        if (overlayVisible()) {
+            overlayUntil = 0
+            hiddenByTouch = true
+        } else {
+            showOverlay()
+        }
     }
     fun seekTouch(fraction: Float, done: Boolean) {
         if (live || duration <= 0) return
@@ -489,15 +500,6 @@ fun PlayerScreen(route: Route.Player) {
             .onFocusChanged { rootFocused = it.isFocused }
             .focusRequester(focus)
             .focusable()
-            .let { m ->
-                if (!touch) m else m.pointerInput(live) {
-                    // Toque mostra/esconde os controles; dois toques à esquerda/direita voltam/avançam 10 s.
-                    detectTapGestures(
-                        onTap = { onVideoTap() },
-                        onDoubleTap = { o -> if (!live) onVideoDoubleTap(if (o.x < size.width / 2) -1 else +1) },
-                    )
-                }
-            }
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 val code = event.key.nativeKeyCode
@@ -561,6 +563,18 @@ fun PlayerScreen(route: Route.Player) {
             update = { it.resizeMode = resizeMode(liveSettings.aspect) },
             modifier = Modifier.fillMaxSize(),
         )
+        // Toque: camada transparente sobre o vídeo, para os gestos não dependerem da View do player.
+        // Toque mostra/esconde os controles; dois toques à esquerda/direita voltam/avançam 10 s.
+        if (touch) {
+            Box(
+                Modifier.fillMaxSize().pointerInput(live) {
+                    detectTapGestures(
+                        onTap = { onVideoTap() },
+                        onDoubleTap = if (live) null else { o -> onVideoDoubleTap(if (o.x < size.width / 2) -1 else +1) },
+                    )
+                },
+            )
+        }
 
         StatusBadge(controller.phase, Modifier.align(Alignment.TopEnd).padding(if (touch) 20.dp else 32.dp))
         if (digits.isNotEmpty()) {
@@ -862,7 +876,8 @@ private fun PlayerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
         scale = ButtonDefaults.scale(focusedScale = 1.1f, pressedScale = 0.92f),
         contentPadding = if (label) PaddingValues(start = 16.dp, end = 20.dp) else PaddingValues(0.dp),
     ) {
-        Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+        // Só ícone: o ícone ocupa o centro exato do círculo (o botão da TV alinha o conteúdo à esquerda).
+        Row(Modifier.fillMaxHeight().then(if (label) Modifier else Modifier.weight(1f)), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             Icon(icon, contentDescription = description, modifier = Modifier.size(if (size > ButtonHeight) size * 0.5f else 26.dp))
             if (label) {
                 Spacer(Modifier.width(8.dp))
