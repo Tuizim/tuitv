@@ -23,6 +23,7 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useBackLayer } from '@/lib/back';
 import { useUi } from '@/lib/hooks';
 import { importErrorText, useT } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
@@ -82,6 +83,21 @@ export function AppShell({ children }: { children: ReactNode }) {
   const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  /** Fecha o menu e devolve o foco ao botão que o abriu (controle remoto e teclado não se perdem). */
+  const closeMenu = () => {
+    setMenu(false);
+    if (menuRef.current?.contains(document.activeElement)) menuButtonRef.current?.focus({ preventScroll: true });
+  };
+  // Voltar do controle fecha o menu antes de sair da tela.
+  useBackLayer(menu, closeMenu);
+  // Ao abrir, o foco entra no primeiro item: as setas do controle andam pelo menu.
+  useEffect(() => {
+    if (!menu) return;
+    const first = menuRef.current?.querySelector<HTMLElement>('[role="menu"] a, [role="menu"] button');
+    if (first && first.offsetParent !== null) first.focus({ preventScroll: true });
+  }, [menu]);
 
   useEffect(() => {
     void init();
@@ -262,8 +278,24 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
         </form>
 
-        <div ref={menuRef} className="relative hidden md:block">
+        <div
+          ref={menuRef}
+          className="relative hidden md:block"
+          onKeyDown={(event) => {
+            if (menu && event.key === 'Escape') {
+              event.preventDefault();
+              event.stopPropagation();
+              closeMenu();
+            }
+          }}
+          onBlur={(event) => {
+            // O foco saiu do menu (setas, Tab): fecha, como nos aplicativos de TV.
+            const next = event.relatedTarget as Node | null;
+            if (menu && next && !event.currentTarget.contains(next)) setMenu(false);
+          }}
+        >
           <button
+            ref={menuButtonRef}
             type="button"
             aria-label={t('Menu')}
             title={t('Menu')}
@@ -275,7 +307,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Menu className="size-5" />
           </button>
           {menu && (
-            <div role="menu" className="tui-fade absolute right-0 mt-2 w-64 rounded-xl border border-line bg-surface p-1.5 shadow-2xl shadow-black/60">
+            <div role="menu" onClick={() => setMenu(false)} className="tui-fade absolute right-0 mt-2 w-64 rounded-xl border border-line bg-surface p-1.5 shadow-2xl shadow-black/60">
               {secondaryLinks}
               {extras}
               <p className="mt-1 border-t border-line px-3 pt-2 pb-1 text-[11px] text-muted">{t('100% local · sem conta · sem login')}</p>

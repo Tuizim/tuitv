@@ -158,6 +158,29 @@ class UiTest {
     }
 
     @Test
+    fun inicioContinuarAssistindoMostraASerieUmaVez() {
+        seed()
+        val episodes = runBlocking {
+            val s = app.library.series(GroupFilter.All).first().first { it.title == "A Série" }
+            app.library.episodes(s.playlistId, s.seriesKey).first().sortedBy { it.order }
+        }
+        app.library.recordPlayback(episodes[0], 2900, 3000)
+        Thread.sleep(20)
+        app.library.recordPlayback(episodes[1], 1200, 3000)
+        compose.waitUntil(10_000) { runBlocking { app.library.continueWatching.first().isNotEmpty() } }
+        show()
+        waitFor(Txt.CONTINUE)
+        waitFor(Txt.episodeLabel(1, 2), substring = true)
+        // Um cartão para a série (não um por episódio): nenhum nome de episódio na fileira.
+        assertTrue(compose.onAllNodesWithText("S01E0", substring = true).fetchSemanticsNodes().isEmpty())
+        assertEquals(1, compose.onAllNodesWithText(Txt.episodeLabel(1, 2), substring = true).fetchSemanticsNodes().size)
+        shot("16-inicio-continuar")
+        // OK no cartão (primeiro da primeira fileira) abre o episódio mais adiante já assistido.
+        press(NativeKeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("A Série S01E02", substring = true)
+    }
+
+    @Test
     fun adicionarListaPorLogin() {
         seed()
         show(Route.Playlists)

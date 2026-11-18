@@ -78,3 +78,27 @@ fun continueEpisode(series: SeriesGroup, progress: (String) -> EpisodeProgress?)
     }
     return ContinueTarget(flat.first(), false)
 }
+
+/** Estado de reprodução de uma entrada do histórico (posição e duração em segundos). */
+data class WatchState(val live: Boolean, val completed: Boolean, val position: Long, val duration: Long)
+
+/**
+ * Fileira "Continuar assistindo" (estilo Netflix): uma linha por série, representada pelo episódio mais
+ * adiante já assistido. Entram filmes e séries iniciados e não concluídos, séries em andamento (algum episódio
+ * concluído) e, se o episódio mais adiante já terminou, a série com um próximo episódio. Canais ficam de fora.
+ */
+fun <T> continueWatching(
+    entries: List<T>,
+    seriesId: (T) -> String?,
+    order: (T) -> EpisodeOrder,
+    state: (T) -> WatchState,
+    minPosition: Long,
+    hasNextEpisode: (T) -> Boolean = { false },
+): List<HistoryRow<T>> = collapseSeriesHistory(entries, seriesId, order).filter { row ->
+    val s = state(row.entry)
+    when {
+        s.live -> false
+        !s.completed -> (s.position > minPosition && s.duration > 0) || row.episodes?.any { state(it).completed } == true
+        else -> row.episodes != null && hasNextEpisode(row.entry)
+    }
+}

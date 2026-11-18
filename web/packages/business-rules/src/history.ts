@@ -82,3 +82,23 @@ export function continueEpisode(
   }
   return { episode: flat[0]!, resume: false };
 }
+
+/**
+ * Fileira "Continuar assistindo" (estilo Netflix): uma linha por série, representada pelo episódio mais
+ * adiante já assistido. Entram filmes e séries iniciados e não concluídos, séries em andamento (algum episódio
+ * concluído) e, se o episódio mais adiante já terminou, a série com um próximo episódio. Canais ficam de fora.
+ */
+export function continueWatching<T extends HistoryEntry>(
+  entries: readonly T[],
+  { minPosition, hasNextEpisode }: { minPosition: number; hasNextEpisode?: (entry: T) => boolean },
+): HistoryRow<T>[] {
+  return collapseSeriesHistory(entries).filter(({ entry, episodes }) => {
+    if (entry.kind === 'live') return false;
+    if (!entry.completed) {
+      if (entry.position > minPosition && entry.duration > 0) return true;
+      // Série já em andamento (algum episódio concluído), mesmo que o seguinte mal tenha começado.
+      return !!episodes?.some((e) => e.completed);
+    }
+    return !!episodes && (hasNextEpisode?.(entry) ?? false);
+  });
+}

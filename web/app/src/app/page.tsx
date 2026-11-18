@@ -9,11 +9,11 @@ import { Thumb } from '@/components/Thumb';
 import { AddSourceDialog } from '@/components/dialogs';
 import { Logo } from '@/components/Logo';
 import { Button, Notice, cx } from '@/components/ui';
-import { itemHref, seriesHref, useRemoteConnection, useRemoteGroup } from '@/lib/hooks';
+import { itemHref, seriesContinueHref, seriesHref, useRemoteConnection, useRemoteGroup } from '@/lib/hooks';
 import { importErrorText, useT } from '@/lib/i18n';
 import { useMovieInfo, useSeriesInfo } from '@/lib/meta';
 import { hasRemote, useResolver, useStore } from '@/lib/store';
-import type { SeriesGroup } from '@tuitv/business-rules';
+import { continueWatching, nextEpisode, type SeriesGroup } from '@tuitv/business-rules';
 
 export default function HomePage() {
   const playlists = useStore((s) => s.playlists);
@@ -77,15 +77,40 @@ function Dashboard({ onAdd }: { onAdd: () => void }) {
   const resolve = useResolver();
 
   const { resume, lastChannel } = useMemo(() => {
-    const resume: { item: MediaItem; progress: number }[] = [];
     let lastChannel: MediaItem | undefined;
     for (const entry of history) {
-      const item = resolve.item(entry.itemId);
-      if (!item) continue;
-      if (item.kind === 'live') {
-        lastChannel ??= item;
-      } else if (!entry.completed && entry.position > 30 && entry.duration > 0 && resume.length < 20) {
-        resume.push({ item, progress: entry.position / entry.duration });
+      if (entry.kind !== 'live') continue;
+      lastChannel = resolve.item(entry.itemId);
+      if (lastChannel) break;
+    }
+    // Séries no estilo Netflix: um único cartão por série, que continua do episódio mais adiante já assistido.
+    const rows = continueWatching(history, {
+      minPosition: 30,
+      hasNextEpisode: (entry) => {
+        const series = entry.seriesId ? resolve.series(entry.seriesId) : undefined;
+        return !!series && !!nextEpisode(series, entry.itemId);
+      },
+    });
+    const resume: Resume[] = [];
+    for (const { entry, episodes } of rows) {
+      if (resume.length >= 20) break;
+      const progress = !entry.completed && entry.duration > 0 ? entry.position / entry.duration : 0;
+      if (episodes && entry.seriesId) {
+        const series = resolve.series(entry.seriesId);
+        const item = resolve.item(entry.itemId);
+        if (!series && !item) continue;
+        resume.push({
+          key: entry.seriesId,
+          title: entry.seriesTitle ?? series?.title ?? entry.name,
+          image: entry.seriesLogo ?? series?.logo ?? entry.logo,
+          href: seriesContinueHref(entry.seriesId),
+          progress,
+          episode: entry.season || entry.episode ? { season: entry.season ?? 0, episode: entry.episode ?? 0 } : undefined,
+          series,
+        });
+      } else {
+        const item = resolve.item(entry.itemId);
+        if (item) resume.push({ key: item.id, title: item.name, image: item.logo, href: itemHref(item), progress, item });
       }
     }
     return { resume, lastChannel };
@@ -142,9 +167,9 @@ function Dashboard({ onAdd }: { onAdd: () => void }) {
 
       {resume.length > 0 && (
         <Row title={t('Continuar assistindo')} href="/history">
-          {resume.map(({ item, progress }) => (
-            <div key={item.id} className={POSTER_SLOT}>
-              <PosterCard href={itemHref(item)} title={item.name} image={item.logo} progress={progress} />
+          {resume.map((r) => (
+            <div key={r.key} className={POSTER_SLOT}>
+              <PosterCard href={r.href} title={r.title} image={r.image} progress={r.progress} meta={r.episode && t('T{s} E{e}', { s: r.episode.season, e: r.episode.episode })} />
             </div>
           ))}
         </Row>
@@ -202,12 +227,28 @@ function GroupRow(props: { kind: 'movie'; name: string; items: MediaItem[] } | {
  * Destaque da tela inicial: o que o usuário estava assistindo ou, na falta disso,
  * um título da biblioteca que muda a cada dia.
  */
-function Hero({ resume, lastChannel }: { resume?: { item: MediaItem; progress: number }; lastChannel?: MediaItem }) {
+/** Item de "Continuar assistindo": um filme ou uma série inteira (que continua do episódio mais adiante). */
+interface Resume {
+  key: string;
+  title: string;
+  image?: string;
+  href: string;
+  progress: number;
+  item?: MediaItem;
+  series?: SeriesGroup;
+  episode?: { season: number; episode: number };
+}
+
+function Hero({ resume, lastChannel }: { resume?: Resume; lastChannel?: MediaItem }) {
   const t = useT();
   const lib = useStore((s) => s.lib);
 
   const featured = useMemo(() => {
-    if (resume) return { label: t('Continuar assistindo'), title: resume.item.name, image: resume.item.logo, href: itemHref(resume.item), meta: [resume.item.year, resume.item.group], item: resume.item };
+    if (resume?.item) return { label: t('Continuar assistindo'), title: resume.title, image: resume.image, href: resume.href, meta: [resume.item.year, resume.item.group], item: resume.item };
+    if (resume) {
+      const episode = resume.episode && t('T{s} E{e}', { s: resume.episode.season, e: resume.episode.episode });
+      return { label: t('Continuar assistindo'), title: resume.title, image: resume.image, href: resume.href, meta: [episode, resume.series?.year, resume.series?.group], ...(resume.series ? { series: resume.series } : {}) };
+    }
     const day = Math.floor(Date.now() / 86_400_000);
     const movies = lib.movies.filter((m) => m.logo).slice(0, 400);
     if (movies.length) {

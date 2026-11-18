@@ -542,3 +542,42 @@ test('"Ver tudo": capa em foco cresce do centro, com respiro igual dos dois lado
   expect(left).toBeGreaterThan(14);
   await page.screenshot({ path: new URL('../build/screenshots/13-ver-tudo-foco.png', import.meta.url).pathname });
 });
+
+test('menu do topo com o controle: OK abre com o foco no 1º item, ▲▼ andam nos itens, Voltar fecha', async ({ page }) => {
+  const errors = await open(page);
+  await login(page);
+  await page.evaluate(() => (location.hash = '#/'));
+  await expect(page.locator('main a.group').first()).toBeVisible();
+  const button = page.getByRole('button', { name: 'Menu', exact: true });
+  await button.focus();
+  await page.keyboard.press('Enter');
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  await expect.poll(() => focused(page)).toBe('Histórico');
+  // ▼ desce pelos itens (não pula para os cartões da tela); ◀▶ não saem do menu.
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => focused(page)).toBe('Guia de programação');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
+  expect(await focused(page)).toBe('Guia de programação');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => focused(page)).toBe('Configurações');
+  await page.keyboard.press('ArrowDown');
+  expect(await focused(page)).toBe('Configurações');
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => focused(page)).toBe('Minhas listas');
+  // Voltar fecha o menu, devolve o foco ao botão e continua na tela.
+  await remote(page, BACK);
+  await expect(menu).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).toBe('Menu');
+  await expect(page).toHaveURL(/#\/$/);
+  // OK num item abre a tela e fecha o menu.
+  await page.keyboard.press('Enter');
+  await expect.poll(() => focused(page)).toBe('Histórico');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/#\/guide/);
+  await expect(menu).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

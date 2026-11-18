@@ -75,10 +75,21 @@ function isVisible(el: HTMLElement): boolean {
   return style.visibility !== 'hidden' && style.display !== 'none';
 }
 
-/** Região ativa: o diálogo aberto por último, senão a página inteira. */
+/** Menu suspenso aberto e visível (o do cabeçalho), se houver. */
+function openMenu(): HTMLElement | null {
+  const menus = document.querySelectorAll<HTMLElement>('[role="menu"]');
+  for (let i = menus.length - 1; i >= 0; i--) {
+    const rect = menus[i]!.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return menus[i]!;
+  }
+  return null;
+}
+
+/** Região ativa: o diálogo aberto por último, senão o menu aberto, senão a página inteira. */
 function scope(): ParentNode {
   const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"], [aria-modal="true"]');
-  return dialogs.length ? dialogs[dialogs.length - 1]! : document;
+  if (dialogs.length) return dialogs[dialogs.length - 1]!;
+  return openMenu() ?? document;
 }
 
 /** Elementos que o controle pode focar (tabindex="-1" fica de fora, ex.: o logotipo). */
@@ -264,7 +275,8 @@ function focus(el: HTMLElement, smooth = true) {
   }
   const parent = scrollParent(row ?? el);
   let pageTop: number | null = null;
-  if (!parent) {
+  // Itens do menu suspenso ficam no cabeçalho fixo: andar por eles não rola a página.
+  if (!parent && !el.closest('[role="menu"]')) {
     const height = window.innerHeight;
     if (rect.top < TOP_SAFE || rect.bottom > height * BOTTOM_SAFE) {
       const target = rect.height > height * 0.6 ? TOP_SAFE : Math.max(TOP_SAFE, height * PIVOT);
@@ -342,9 +354,18 @@ function onArrow(event: KeyboardEvent) {
   const row = rowOf(active!);
   const carousel = row?.closest('[class~="group/row"], [data-nav-row]') ? row : null;
   const horizontal = dir === 'left' || dir === 'right';
-  const pool = carousel && horizontal ? reachable(carousel) : reachable(scope());
+  const region = scope();
+  const pool = carousel && horizontal ? reachable(carousel) : reachable(region);
+  // Com o menu aberto as setas ficam nos itens dele (Voltar fecha), como nos aplicativos de TV.
+  const menu = region instanceof HTMLElement && region.getAttribute('role') === 'menu' ? region : null;
+  if (menu && !menu.contains(active)) {
+    // Foco ainda no botão que abriu o menu: qualquer seta entra no primeiro item.
+    const first = focusables(menu)[0];
+    if (first) focus(first, false);
+    return;
+  }
   // Do cabeçalho para baixo: vai direto ao alvo principal da tela, se ela indicar um (ex.: canal atual).
-  if (dir === 'down' && active!.closest('header')) {
+  if (dir === 'down' && !menu && active!.closest('header')) {
     // Sem indicação, o primeiro cartão da tela (ou o lembrado na fileira dele), não links laterais.
     const marked = document.querySelector<HTMLElement>('main [data-nav-default]');
     const card = document.querySelector<HTMLElement>('main a.group');
@@ -356,6 +377,8 @@ function onArrow(event: KeyboardEvent) {
   }
   // ◀▶ não saltam para o menu do topo a partir da tela (só ▲ leva até ele).
   const fromHeader = !!active!.closest('header');
+  // Dentro do menu, só ▲▼ entre os itens; no fim da lista o foco fica onde está.
+  if (menu && horizontal) return;
   const candidates = pool.filter(
     (el) => el !== active && !el.contains(active) && !active!.contains(el) && (!horizontal || fromHeader || !el.closest('header')),
   );

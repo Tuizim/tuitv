@@ -31,6 +31,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import tv.tui.core.EpisodeOrder
+import tv.tui.core.HistoryRow
+import tv.tui.core.WatchState
+import tv.tui.core.collapseSeriesHistory
+import tv.tui.core.continueWatching
+import tv.tui.core.groupSeries
+import tv.tui.core.nextEpisode
 import tv.tui.core.ContentKind
 import tv.tui.core.EpgIndex
 import tv.tui.core.EpgIndexEntry
@@ -91,6 +98,9 @@ sealed interface FavoriteEntry {
 }
 
 private const val HISTORY_LIMIT = 500
+
+/** Posição (s) a partir da qual um filme ou episódio conta como iniciado para "Continuar assistindo". */
+const val RESUME_MIN_SEC = 30L
 private const val RETRY_AFTER_FAILURE = 3_600_000L
 
 fun newId(): String {
@@ -450,6 +460,31 @@ class Library(
             list.filter { entry -> items[entry.itemId]?.let { !blocked(it.group, it.name) } ?: !Parental.isAdultLabel(entry.name) }
         }
         .flowOn(Dispatchers.IO)
+
+    /**
+     * "Continuar assistindo" da tela inicial: uma linha por série, representada pelo episódio mais adiante
+     * já assistido (mesma regra da Web e da Samsung: tv.tui.core.continueWatching). Para saber se há um próximo
+     * episódio, usa só episódios já disponíveis (lista local ou login já carregado), sem pedir nada ao servidor.
+     */
+    val continueWatching: Flow<List<HistoryRow<HistoryEntity>>> = history.mapLatest { list ->
+        val sid = { e: HistoryEntity -> e.seriesId.takeIf { e.kind == ContentKind.SERIES.id } }
+        val order = { e: HistoryEntity -> EpisodeOrder(e.season, e.episode, e.playedAt) }
+        val withNext = HashSet<String>()
+        for (row in collapseSeriesHistory(list, sid, order)) {
+            val e = row.entry
+            if (row.episodes == null || !e.completed) continue
+            val key = e.seriesId?.removePrefix("${e.playlistId}:s:") ?: continue
+            val series = knownEpisodes(e.playlistId, key)?.let { groupSeries(it).firstOrNull() } ?: continue
+            if (nextEpisode(series, e.itemId) != null) withNext += e.itemId
+        }
+        continueWatching(list, sid, order, { WatchState(it.kind == ContentKind.LIVE.id, it.completed, it.position, it.duration) }, RESUME_MIN_SEC) { it.itemId in withNext }
+    }.flowOn(Dispatchers.IO)
+
+    private suspend fun knownEpisodes(playlistId: String, seriesKey: String): List<MediaItem>? {
+        val playlist = playlists.value?.firstOrNull { it.id == playlistId } ?: return null
+        return if (playlist.remote) remote.cached(playlistId)?.episodes?.get(seriesKey)?.second
+        else db.items().episodes(playlistId, seriesKey).visible().first()
+    }
 
     suspend fun historyEntry(itemId: String): HistoryEntity? = withContext(Dispatchers.IO) { db.history().get(itemId) }
 

@@ -327,6 +327,15 @@ test('filmes, séries, temporadas, episódios assistidos e busca global', async 
   await expect(page).toHaveURL(/\/watch\/?\?id=/);
   await expect(page.getByText('Temporada 1 · Episódio 2').first()).toBeVisible();
 
+  // Início: "Continuar assistindo" também mostra a série uma única vez e continua do episódio mais adiante.
+  await page.goto('/');
+  const row = page.locator('section', { has: page.getByRole('heading', { name: 'Continuar assistindo' }) });
+  await expect(row.getByRole('link', { name: /A Série/ })).toHaveCount(1);
+  await expect(row.getByRole('link', { name: /S01E0/ })).toHaveCount(0);
+  await row.getByRole('link', { name: /A Série/ }).click();
+  await expect(page).toHaveURL(/\/watch\/?\?id=/);
+  await expect(page.getByText('Temporada 1 · Episódio 2').first()).toBeVisible();
+
   // Busca global, sem acentos
   await search(page, 'serie');
   await expect(page.getByRole('heading', { name: 'Resultados para “serie”' })).toBeVisible();

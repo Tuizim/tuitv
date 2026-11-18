@@ -75,6 +75,7 @@ import tv.tui.core.nextEpisode
 import tv.tui.core.seriesId
 import tv.tui.tuitv.data.FavoriteEntry
 import tv.tui.tuitv.data.HistoryEntry
+import tv.tui.tuitv.data.RESUME_MIN_SEC
 import tv.tui.tuitv.data.SearchResults
 import tv.tui.tuitv.data.SeriesCard
 import tv.tui.tuitv.ui.Navigator
@@ -123,7 +124,7 @@ import androidx.compose.ui.text.style.TextAlign
 private const val ROW = 20
 
 /** Posição (s) a partir da qual vale oferecer "continuar". */
-private const val RESUME_MIN = 30L
+private const val RESUME_MIN = RESUME_MIN_SEC
 
 private fun HistoryEntry.resumable() = !completed && position >= RESUME_MIN && kind != ContentKind.LIVE.id
 
@@ -249,7 +250,9 @@ fun HomeScreen() {
     val series by remember { library.firstSeries(ROW) }.collectAsStateWithLifecycle(emptyList())
     val hasContent by library.hasContent.collectAsStateWithLifecycle(true)
 
-    val resume = history.filter { it.resumable() }.take(ROW)
+    // Séries no estilo Netflix: um único cartão por série, que continua do episódio mais adiante já assistido.
+    val resume by library.continueWatching.collectAsStateWithLifecycle(emptyList())
+    val continueSeries = rememberSeriesContinue()
     val recentChannels = history.filter { it.kind == ContentKind.LIVE.id }.take(ROW)
     val memory = rememberRowsFocusMemory("home")
     val rows = linkedMapOf(
@@ -292,8 +295,15 @@ fun HomeScreen() {
             }
         }
         if (!hasContent) item(key = "empty") { EmptyState(Txt.EMPTY_LIBRARY) }
-        contentRow(Txt.CONTINUE, resume, { it.itemId }, focus) { entry, m ->
-            ChannelCard(entry.name, entry.logo, { playHistory(entry) }, m, caption = Txt.clock(entry.position) + " / " + Txt.clock(entry.duration), progress = entry.fraction())
+        contentRow(Txt.CONTINUE, resume.take(ROW), { row -> row.entry.seriesId.takeIf { row.episodes != null } ?: row.entry.itemId }, focus) { row, m ->
+            val entry = row.entry
+            if (row.episodes != null) {
+                val label = if ((entry.season ?: 0) > 0 || (entry.episode ?: 0) > 0) Txt.episodeLabel(entry.season ?: 0, entry.episode ?: 0) else null
+                val caption = listOfNotNull(label, if (entry.resumable()) Txt.clock(entry.position) + " / " + Txt.clock(entry.duration) else null).joinToString(" · ")
+                ChannelCard(entry.seriesTitle ?: entry.name, entry.seriesLogo ?: entry.logo, { continueSeries(entry) }, m, caption = caption.ifEmpty { null }, progress = if (entry.resumable()) entry.fraction() else null)
+            } else {
+                ChannelCard(entry.name, entry.logo, { playHistory(entry) }, m, caption = Txt.clock(entry.position) + " / " + Txt.clock(entry.duration), progress = entry.fraction())
+            }
         }
         contentRow("Canais recentes", recentChannels, { it.itemId }, focus) { entry, m ->
             ChannelCard(entry.name, entry.logo, { playHistory(entry) }, m)

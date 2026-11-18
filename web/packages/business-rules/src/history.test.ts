@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HistoryEntry, MediaItem } from '@tuitv/shared-models';
-import { collapseSeriesHistory, continueEpisode, groupSeries } from './index';
+import { collapseSeriesHistory, continueEpisode, continueWatching, groupSeries } from './index';
 
 const episode = (season: number, ep: number): MediaItem => ({
   id: `p:e${season}x${ep}`,
@@ -66,5 +66,31 @@ describe('continuar série', () => {
   it('nada assistido ou série inteira vista: começa do primeiro', () => {
     expect(continueEpisode(series, progress({}))?.episode.id).toBe('p:e1x1');
     expect(continueEpisode(series, progress({ 'p:e2x2': { completed: true } }))?.episode.id).toBe('p:e1x1');
+  });
+});
+
+describe('continuar assistindo', () => {
+  it('uma linha por série, filmes iniciados, sem canais e sem itens concluídos', () => {
+    const history = [
+      ep(1, 2, 90, { position: 600, duration: 3000 }),
+      entry('p:filme', 80, { position: 900, duration: 6000 }),
+      ep(1, 1, 70, { position: 2900, duration: 3000, completed: true }),
+      entry('p:canal', 60, { kind: 'live' }),
+      entry('p:visto', 50, { position: 6000, duration: 6000, completed: true }),
+      entry('p:comeco', 40, { position: 10, duration: 6000 }),
+    ];
+    const rows = continueWatching(history, { minPosition: 30 });
+    expect(rows.map((r) => r.entry.itemId)).toEqual(['p:e1x2', 'p:filme']);
+  });
+
+  it('episódio mais adiante concluído: a série fica só se houver próximo episódio', () => {
+    const history = [ep(1, 2, 90, { position: 3000, duration: 3000, completed: true })];
+    expect(continueWatching(history, { minPosition: 30, hasNextEpisode: () => true })).toHaveLength(1);
+    expect(continueWatching(history, { minPosition: 30, hasNextEpisode: () => false })).toHaveLength(0);
+  });
+
+  it('série em andamento fica mesmo se o episódio seguinte mal começou', () => {
+    const history = [ep(1, 2, 90, { position: 3, duration: 3000 }), ep(1, 1, 50, { position: 3000, duration: 3000, completed: true })];
+    expect(continueWatching(history, { minPosition: 30 }).map((r) => r.entry.itemId)).toEqual(['p:e1x2']);
   });
 });
