@@ -74,7 +74,7 @@ test('marca: logotipo e gato carregam como na TV (política de segurança do Tiz
   }
   // Cabeçalho: logotipo em altura legível e nenhum "TuiTV" escrito no lugar dele.
   expect((await page.locator('header img[data-brand="logo"]').boundingBox())!.height).toBeGreaterThan(30);
-  expect(await page.locator('header a[aria-label="TuiTV"]').innerText()).toBe('');
+  expect(await page.locator('header').getByRole('link', { name: 'TuiTV' }).innerText()).toBe('');
   expect(blocked).toEqual([]);
 });
 
@@ -362,6 +362,10 @@ test('TV ao vivo: OK no canal abre a tela cheia; ▲▼ trocam de canal; Voltar 
   await page.keyboard.press('ArrowDown');
   await expect(title).not.toHaveText(before);
   await shot('07-ao-vivo-tela-cheia');
+  // Ao vivo não há pausa nem ajuste de tela na barra do player.
+  const watch = page.getByTestId('tv-watch');
+  await expect(watch.getByRole('button', { name: /^(Pausar|Reproduzir)$/ })).toHaveCount(0);
+  await expect(watch.getByRole('button', { name: /Proporção/ })).toHaveCount(0);
   await remote(page, BACK);
   await expect(page.getByTestId('tv-watch')).toHaveCount(0);
   await expect(page).toHaveURL(/#\/live/);

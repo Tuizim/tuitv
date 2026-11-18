@@ -620,6 +620,8 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
     idleTimer.current = setTimeout(() => setIdle(true), 3500);
   }, []);
   useEffect(() => () => clearTimeout(idleTimer.current), []);
+  // O HUD some sozinho também sem nenhum toque: o cronômetro começa ao abrir e a cada troca de canal.
+  useEffect(() => wake(), [item.id, wake]);
 
   const onTvKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -756,7 +758,8 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
   const pipSupported = typeof document !== 'undefined' && 'pictureInPictureEnabled' in document && document.pictureInPictureEnabled;
 
   const busy = phase === 'loading' || phase === 'buffering' || phase === 'reconnecting';
-  const showControls = !idle || paused || phase !== 'playing' || menu !== null || scrubTo !== null;
+  // Ao vivo não há pausa: uma oscilação da transmissão mostra só o "Carregando…", sem trazer o HUD de volta.
+  const showControls = !idle || menu !== null || scrubTo !== null || phase === 'error' || (!isLive && (paused || phase !== 'playing'));
   // Controles escondidos não podem ficar com o foco (TV): ele volta à barra de progresso.
   useEffect(() => {
     if (!tv || showControls) return;
@@ -848,9 +851,12 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
               <span className="inline-flex items-center gap-2 rounded bg-danger px-2.5 py-1 text-sm font-bold tracking-wide">{t('AO VIVO')}</span>
             ) : null}
             <div className="mt-6 flex items-center gap-4">
-              <button type="button" className={tvButton} onClick={tvToggle} aria-label={paused ? t('Reproduzir') : t('Pausar')}>
-                {paused ? <Play className="size-6 translate-x-0.5" fill="currentColor" /> : <Pause className="size-6" fill="currentColor" />}
-              </button>
+              {/* Ao vivo na TV: sem pausar nem ajuste de tela, só o que faz sentido num canal (áudio e legendas). */}
+              {!isLive && (
+                <button type="button" className={tvButton} onClick={tvToggle} aria-label={paused ? t('Reproduzir') : t('Pausar')}>
+                  {paused ? <Play className="size-6 translate-x-0.5" fill="currentColor" /> : <Pause className="size-6" fill="currentColor" />}
+                </button>
+              )}
               {seekable && (
                 <>
                   <button type="button" className={tvButton} onClick={() => seekBy(-10)} aria-label={t('Voltar 10 segundos')}>
@@ -885,9 +891,11 @@ export function Player({ item, startAt = 0, onProgress, onEnded, onPrev, onNext,
                   buttonClass={tvButton}
                 />
               )}
-              <button type="button" className={tvButton} onClick={cycleAspect} aria-label={aspectLabel} title={aspectLabel}>
-                <RectangleHorizontal className="size-6" />
-              </button>
+              {!isLive && (
+                <button type="button" className={tvButton} onClick={cycleAspect} aria-label={aspectLabel} title={aspectLabel}>
+                  <RectangleHorizontal className="size-6" />
+                </button>
+              )}
               {onNext && !isLive && (
                 <button type="button" className={cx(tvButton, 'w-auto px-6')} onClick={onNext}>
                   <SkipForward className="size-6" /> <span className="text-base font-semibold">{nextLabel ?? t('Próximo')}</span>
