@@ -8,10 +8,11 @@ import { FavoriteButton } from '@/components/cards';
 import { Synopsis } from '@/components/Synopsis';
 import { Thumb } from '@/components/Thumb';
 import { Chip, Empty, IconButton, cx } from '@/components/ui';
-import { itemHref } from '@/lib/hooks';
+import { RemoteStatus } from '@/components/Catalog';
+import { itemHref, useRemoteSeries } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useSeriesInfo } from '@/lib/meta';
-import { useStore } from '@/lib/store';
+import { useResolver, useStore } from '@/lib/store';
 
 export default function SeriesViewPage() {
   return (
@@ -24,7 +25,10 @@ export default function SeriesViewPage() {
 function SeriesView() {
   const t = useT();
   const id = useSearchParams().get('id') ?? '';
-  const series = useStore((s) => s.lib.seriesById.get(id));
+  const resolve = useResolver();
+  const series = resolve.series(id);
+  // Login: episódios pedidos ao servidor ao abrir a série.
+  const load = useRemoteSeries(id);
   const historyById = useStore((s) => s.historyById);
   const setWatched = useStore((s) => s.setWatched);
   const [seasonIndex, setSeasonIndex] = useState<number | null>(null);
@@ -36,7 +40,15 @@ function SeriesView() {
     return all.find((e) => !historyById.get(e.id)?.completed) ?? all[0];
   }, [series, historyById]);
 
-  if (!series) {
+  if (!series || series.seasons.length === 0) {
+    if (load.loading || load.error) return <RemoteStatus load={load} />;
+    if (series) {
+      return (
+        <Empty icon={<Clapperboard className="size-10" />} title={series.title}>
+          <p>{t('Nenhum episódio disponível no servidor.')}</p>
+        </Empty>
+      );
+    }
     return (
       <Empty icon={<Clapperboard className="size-10" />} title={t('Série não encontrada')}>
         <p>{t('Ela pode pertencer a uma lista desativada ou removida.')}</p>

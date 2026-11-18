@@ -16,6 +16,7 @@ function Series() {
   const lib = useStore((s) => s.lib);
   return (
     <Catalog
+      kind="series"
       title={t('Séries')}
       items={lib.series}
       groups={lib.seriesGroups}

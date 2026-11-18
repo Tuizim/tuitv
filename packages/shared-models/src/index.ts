@@ -30,6 +30,25 @@ export interface Playlist {
   epgUrl?: string;
   /** Quantidade de registros ignorados na última importação. */
   skipped?: number;
+  /**
+   * Como o conteúdo é obtido:
+   *  - ausente / 'm3u': lista importada e guardada no dispositivo;
+   *  - 'xtream': login Xtream Codes consultado sob demanda no servidor (player_api.php). Nada do catálogo é
+   *    guardado: categorias, canais, filmes e episódios são buscados quando a tela precisa.
+   */
+  provider?: 'm3u' | 'xtream';
+  /** Dados da conta informados pelo servidor (somente provider = 'xtream'). */
+  account?: PlaylistAccount;
+}
+
+export interface PlaylistAccount {
+  /** Situação informada pelo servidor (ex.: "Active"). */
+  status?: string;
+  /** Vencimento da assinatura (epoch em ms), quando informado. */
+  expiresAt?: number;
+  maxConnections?: number;
+  /** Quantidade de categorias de cada tipo no servidor. */
+  categories: PlaylistCounts;
 }
 
 export interface SeriesInfo {
@@ -71,6 +90,11 @@ export interface Favorite {
   kind: FavoriteKind;
   playlistId: string;
   addedAt: number;
+  /**
+   * Nome e capa no momento em que foi favoritado. Itens de listas consultadas sob demanda (login Xtream)
+   * não ficam guardados no dispositivo: o favorito precisa se mostrar sem consultar o servidor.
+   */
+  snapshot?: { name: string; logo?: string; group?: string; year?: number };
 }
 
 export interface HistoryEntry {

@@ -18,6 +18,30 @@ async function importByUrl(page: Page, file: string, name: string) {
   await page.getByRole('button', { name: 'Importar', exact: true }).click();
 }
 
+/**
+ * Espera as gravações já iniciadas no armazenamento local: uma navegação completa (page.goto) logo depois
+ * de um clique interromperia a gravação. Uma transação de leitura nos mesmos depósitos só começa depois delas.
+ */
+async function flushStorage(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('tuitv');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction(['favorites', 'kv', 'history'], 'readonly');
+          tx.objectStore('favorites').count();
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
+}
+
 /** Seletor próprio do TuiTV (substitui o <select> nativo). */
 async function choose(page: Page, label: string, option: RegExp) {
   await page.getByRole('button', { name: label, exact: true }).click();
@@ -137,27 +161,51 @@ test('recusa endereços internos, conteúdo inválido e fontes sem CORS com mens
   await expect(page.getByRole('heading', { name: 'Nenhuma lista cadastrada' })).toBeVisible();
 });
 
-test('adiciona lista por login (host, usuário e senha) e oferece o guia do mesmo login', async ({ page }) => {
+/** Ações pedidas ao player_api.php do provedor simulado (ex.: "get_vod_streams:10"). */
+function xtreamCalls(page: Page): string[] {
+  const calls: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/player_api.php')) {
+      const action = url.searchParams.get('action') ?? 'login';
+      const category = url.searchParams.get('category_id');
+      calls.push(category ? `${action}:${category}` : action);
+    }
+    if (url.pathname.endsWith('/get.php')) calls.push('get.php');
+  });
+  return calls;
+}
+
+async function addLogin(page: Page, password: string, host = '127.0.0.1:4801/') {
+  await page.getByLabel('Host (servidor)').fill(host);
+  await page.getByLabel('Usuário').fill('joão');
+  await page.getByLabel('Senha').fill(password);
+  await page.getByRole('button', { name: 'Importar', exact: true }).click();
+}
+
+test('login (host, usuário e senha): conecta sem baixar a lista e oferece o guia do mesmo login', async ({ page }) => {
   await allowLocalHosts(page);
+  const calls = xtreamCalls(page);
   await page.goto('/playlists/');
   await page.getByRole('button', { name: 'Adicionar lista' }).click();
   await page.getByRole('tab', { name: 'Login' }).click();
-  await page.getByLabel('Host (servidor)').fill('127.0.0.1:4801/');
-  await page.getByLabel('Usuário').fill('joão');
-  await page.getByLabel('Senha').fill('errada');
-  await page.getByRole('button', { name: 'Importar', exact: true }).click();
-  await expect(page.getByText('respondeu com erro (401)')).toBeVisible();
+  await addLogin(page, 'errada');
+  await expect(page.getByText('O servidor recusou o usuário ou a senha.')).toBeVisible();
 
   await page.getByLabel('Senha').fill('');
   await page.getByRole('button', { name: 'Importar', exact: true }).click();
   await expect(page.getByText('Informe o host, o usuário e a senha.')).toBeVisible();
 
-  await page.getByLabel('Senha').fill('s&nha');
-  await page.getByRole('button', { name: 'Importar', exact: true }).click();
+  await addLogin(page, 's&nha');
+  await expect(page.getByText(/Conectado a “127.0.0.1”: 6 categorias/)).toBeVisible();
   const card = page.getByTestId('playlist-card');
   await expect(card.getByRole('heading', { name: '127.0.0.1' })).toBeVisible();
   await expect(card.getByText('Login: joão em http://127.0.0.1:4801')).toBeVisible();
-  await expect(card.getByText('Conteúdos').locator('..')).toContainText('6');
+  await expect(card.getByText('Categorias de canais').locator('..')).toContainText('3');
+  await expect(card.getByText('Vencimento').locator('..')).toContainText('2030');
+  await expect(card.getByText('nada do catálogo fica guardado neste dispositivo')).toBeVisible();
+  // Só a conta e as categorias foram pedidas: nenhum canal, filme ou a lista M3U inteira.
+  expect(calls.filter((c) => c !== 'login' && !c.endsWith('_categories'))).toEqual([]);
 
   await page.goto('/guide/');
   await expect(page.getByText('Uma das suas listas indica um guia de programação')).toBeVisible();
@@ -165,7 +213,75 @@ test('adiciona lista por login (host, usuário e senha) e oferece o guia do mesm
   // O diálogo abre com o endereço xmltv.php do mesmo login já preenchido.
   await page.getByRole('dialog').getByRole('button', { name: 'Importar', exact: true }).click();
   await expect(page.getByText('Guia de programação importado.')).toBeVisible();
+  // A grade abre na primeira categoria (pedida ao servidor); "Todas" pede a lista completa de canais.
+  await expect(page.getByText('2 canais com programação')).toBeVisible();
+  await choose(page, 'Categoria', /Todas as categorias/);
   await expect(page.getByText('3 canais com programação')).toBeVisible();
+  expect(calls.filter((c) => c === 'get.php')).toEqual([]);
+});
+
+test('login: categorias, séries e favoritos vêm do servidor sob demanda', async ({ page }) => {
+  await allowLocalHosts(page);
+  const calls = xtreamCalls(page);
+  await page.goto('/playlists/');
+  await page.getByRole('button', { name: 'Adicionar lista' }).click();
+  await page.getByRole('tab', { name: 'Login' }).click();
+  await addLogin(page, 's&nha');
+  await expect(page.getByText(/Conectado a/)).toBeVisible();
+
+  // Ao vivo abre na primeira categoria e pede só ela.
+  await page.goto('/live/');
+  const list = page.getByTestId('channel-list');
+  await expect(list.getByRole('button', { name: /Canal Um HD/ })).toBeVisible();
+  await expect(list.getByRole('button', { name: /Esporte 1/ })).toHaveCount(0);
+  expect(calls).toContain('get_live_streams:1');
+  expect(calls).not.toContain('get_live_streams');
+  await choose(page, 'Categoria', /Esportes/);
+  await expect(list.getByRole('button', { name: /Esporte 1/ })).toBeVisible();
+
+  // Filmes: uma fileira por categoria do servidor, cada uma pedida ao aparecer.
+  await page.goto('/movies/');
+  await expect(page.getByRole('link', { name: /Corrida Final \(2022\)/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Drama na Serra/ })).toBeVisible();
+  expect(calls).toEqual(expect.arrayContaining(['get_vod_streams:10', 'get_vod_streams:11']));
+  await page.getByRole('link', { name: /Corrida Final/ }).click();
+  await expect(page.getByText('Perseguição pela cidade.')).toBeVisible();
+  await page.getByRole('button', { name: 'Adicionar aos favoritos' }).click();
+  await flushStorage(page);
+
+  // Série: episódios pedidos ao abrir a série.
+  await page.goto('/series/');
+  await page.getByRole('link', { name: /Vale Escuro/ }).click();
+  await expect(page.getByRole('heading', { name: 'Vale Escuro' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Temporada 2' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /S01E02 - Neblina/ })).toBeVisible();
+  expect(calls).toContain('get_series_info');
+  await page.getByRole('button', { name: 'Adicionar aos favoritos' }).click();
+  await flushStorage(page);
+
+  // Depois de recarregar, os favoritos aparecem sem pedir as categorias de novo (nome e capa guardados).
+  calls.length = 0;
+  await page.goto('/favorites/');
+  await expect(page.getByRole('link', { name: /Corrida Final/ })).toBeVisible();
+  await page.getByRole('tab', { name: /Séries/ }).click();
+  await expect(page.getByRole('link', { name: /Vale Escuro/ })).toBeVisible();
+  expect(calls.filter((c) => !c.endsWith('_categories') && c !== 'login')).toEqual([]);
+
+  // Busca: o catálogo de cada tipo é pedido uma vez e filtrado no aparelho.
+  await search(page, 'serra');
+  await expect(page.getByRole('link', { name: /Drama na Serra/ })).toBeVisible();
+  expect(calls).toEqual(expect.arrayContaining(['get_live_streams', 'get_vod_streams', 'get_series']));
+  expect(calls.filter((c) => c === 'get.php')).toEqual([]);
+});
+
+test('login sem a API do servidor (player_api.php): importa a lista M3U do mesmo login', async ({ page }) => {
+  await allowLocalHosts(page);
+  await page.goto('/playlists/');
+  await page.getByRole('button', { name: 'Adicionar lista' }).click();
+  await page.getByRole('tab', { name: 'Login' }).click();
+  await addLogin(page, 's&nha', '127.0.0.1:4801/semapi');
+  await expect(page.getByText('importada: 6 itens')).toBeVisible();
+  await expect(page.getByTestId('playlist-card').getByText('Conteúdos').locator('..')).toContainText('6');
 });
 
 test('registros incompletos não interrompem a importação', async ({ page }) => {
@@ -295,6 +411,7 @@ test('controle parental oculta categorias até o PIN ser informado', async ({ pa
   await page.getByLabel('Repita o PIN').fill('1234');
   await page.getByRole('button', { name: 'Salvar' }).click();
   await page.getByLabel('Esportes').check();
+  await flushStorage(page);
 
   // Nova sessão: o conteúdo volta bloqueado.
   await page.goto('/live/');

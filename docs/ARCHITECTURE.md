@@ -17,12 +17,31 @@ Hospedagem estática ──► Navegador (aplicação inteira) ──► Indexed
 
 ## Login do provedor (host, usuário e senha)
 
-Listas podem ser adicionadas por link M3U ou por login no formato Xtream Codes. O login não é um tipo novo de lista:
-`normalizeXtreamHost` + `xtreamPlaylistUrl` (TypeScript, `packages/validation`) e `Xtream` (Kotlin, `kotlin-core`) montam
-`host/get.php?username=…&password=…&type=m3u_plus&output=ts`, que é guardado (cifrado) como o endereço da lista.
-Assim backup, atualização automática e ids estáveis funcionam igual; `parseXtreamUrl` / `Xtream.parse` recuperam o login
-para exibição e edição. O guia `xmltv.php` do mesmo login é usado quando a lista não anuncia um guia (`url-tvg`):
-adicionado automaticamente na TV e oferecido na página do guia na Web.
+Listas podem ser adicionadas por link M3U ou por login no formato Xtream Codes. `normalizeXtreamHost` +
+`xtreamPlaylistUrl` (TypeScript, `packages/validation`) e `Xtream` (Kotlin, `kotlin-core`) montam
+`host/get.php?username=…&password=…&type=m3u_plus&output=ts`, que é guardado (cifrado) como o endereço da lista;
+`parseXtreamUrl` / `Xtream.parse` recuperam o login para exibição e edição. O guia `xmltv.php` do mesmo login é usado
+quando a lista não anuncia um guia (`url-tvg`): adicionado automaticamente na TV e oferecido na página do guia na Web.
+
+### Consulta sob demanda (Web e Samsung)
+
+A lista M3U de um login traz cada episódio de cada série — com frequência centenas de milhares de registros. Por isso,
+na Web e na Samsung, um login **não é importado** (`Playlist.provider = 'xtream'`, `lib/xtream.ts`):
+
+| Momento | Consulta ao `player_api.php` | Guardado |
+| --- | --- | --- |
+| Adicionar / abrir o app | conta (`user_info`) e categorias de canais, filmes e séries | conta (situação, vencimento) na lista |
+| Abrir uma categoria (ou a fileira aparecer na tela) | `get_live_streams` / `get_vod_streams` / `get_series` com `category_id` | nada — só memória |
+| Abrir uma série | `get_series_info` (temporadas e episódios) | nada — só memória |
+| Buscar | o catálogo de cada tipo, uma vez por sessão | nada — só memória |
+
+- Telas de canais e guia abrem numa categoria; "Todas as categorias" pede a lista completa só quando escolhida.
+- Ids estáveis embutem tipo e id do servidor (`x:l:<canal>`, `x:m:<filme>.<ext>`, `x:e:<série>:<episódio>.<ext>`):
+  favoritos (que guardam nome e capa) e histórico reabrem o conteúdo sem consultar o catálogo.
+- Servidor sem a API (404 ou resposta que não é JSON): o login volta a ser importado como lista M3U (`get.php`).
+- "Atualizar" numa lista antiga importada de um login a converte para consulta sob demanda e libera o armazenamento.
+- Android TV mantém a importação completa da lista M3U do login. Um backup da Web com um login é restaurado no
+  Android como lista por endereço e importado normalmente (campos `provider`/`account` são ignorados).
 
 ## Fluxo de importação
 

@@ -9,12 +9,12 @@ import { Thumb } from '@/components/Thumb';
 import { Button, Chip, Empty, IconButton, PageHeader } from '@/components/ui';
 import { itemHref } from '@/lib/hooks';
 import { formatClock, formatDate, useT } from '@/lib/i18n';
-import { useStore } from '@/lib/store';
+import { useResolver, useStore } from '@/lib/store';
 
 export default function HistoryPage() {
   const t = useT();
   const history = useStore((s) => s.history);
-  const lib = useStore((s) => s.lib);
+  const resolve = useResolver();
   const language = useStore((s) => s.settings.language);
   const removeHistory = useStore((s) => s.removeHistory);
   const clearHistory = useStore((s) => s.clearHistory);
@@ -56,7 +56,7 @@ export default function HistoryPage() {
       </div>
       <ul className="overflow-hidden rounded-xl border border-line bg-surface">
         {visible.map((entry) => {
-          const item = lib.byId.get(entry.itemId);
+          const item = resolve.item(entry.itemId);
           const body = (
             <>
               <Thumb src={entry.logo} name={entry.name} className="size-11 shrink-0 rounded-lg" />

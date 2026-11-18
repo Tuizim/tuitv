@@ -71,7 +71,16 @@ export function AddSourceDialog({
       }
       if (isPlaylist) {
         const playlist = await importPlaylist(input);
-        toast(t('Lista “{name}” importada: {n} itens.', { name: playlist.name, n: playlist.itemCount }), 'success');
+        const categories = playlist.account?.categories;
+        toast(
+          categories
+            ? t('Conectado a “{name}”: {n} categorias. O conteúdo é carregado do servidor quando você abre cada uma.', {
+                name: playlist.name,
+                n: (categories.live + categories.movie + categories.series).toLocaleString(),
+              })
+            : t('Lista “{name}” importada: {n} itens.', { name: playlist.name, n: playlist.itemCount }),
+          'success',
+        );
       } else {
         await addEpg(input);
         toast(t('Guia de programação importado.'), 'success');
@@ -160,7 +169,7 @@ export function AddSourceDialog({
               </Field>
             </div>
             <p className="text-xs text-muted">
-              {t('Os dados ficam apenas neste dispositivo e são usados para montar o endereço da lista do provedor.')}
+              {t('O usuário e a senha ficam apenas neste dispositivo. O TuiTV consulta o servidor do provedor quando você abre cada categoria, sem baixar a lista inteira.')}
             </p>
           </div>
         ) : mode === 'url' ? (
@@ -208,7 +217,11 @@ export function AddSourceDialog({
           <div className="space-y-2" aria-live="polite">
             <div className="flex items-center gap-2 text-sm text-muted">
               <Spinner className="size-4 text-accent" />
-              {job && job.count > 0 ? t('Importando… {n} itens', { n: job.count.toLocaleString() }) : t('Baixando e validando…')}
+              {mode === 'login'
+                ? t('Conectando ao servidor…')
+                : job && job.count > 0
+                  ? t('Importando… {n} itens', { n: job.count.toLocaleString() })
+                  : t('Baixando e validando…')}
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-bg">
               <div

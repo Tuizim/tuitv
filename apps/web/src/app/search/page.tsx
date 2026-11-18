@@ -5,17 +5,28 @@ import Link from 'next/link';
 import { useDeferredValue, useMemo } from 'react';
 import { normalizeText, searchIn } from '@tuitv/business-rules';
 import { ChannelCard, MovieCard, SeriesCard } from '@/components/cards';
-import { Chip, Empty } from '@/components/ui';
-import { useUi } from '@/lib/hooks';
-import { useT } from '@/lib/i18n';
-import { useStore } from '@/lib/store';
+import { Chip, Empty, Notice, Spinner } from '@/components/ui';
+import { useRemoteGroup, useUi } from '@/lib/hooks';
+import { importErrorText, useT } from '@/lib/i18n';
+import { hasRemote, useStore } from '@/lib/store';
 
-/** Pesquisa global (PRD RF-010): resolvida inteiramente sobre a biblioteca local. */
+/**
+ * Pesquisa global (PRD RF-010): resolvida sobre a biblioteca local.
+ * Logins não têm busca no servidor: na primeira busca da sessão, o catálogo de cada tipo é pedido
+ * ao servidor e mantido só em memória.
+ */
 export default function SearchPage() {
   const t = useT();
   const query = useDeferredValue(useUi((s) => s.query));
   const lib = useStore((s) => s.lib);
   const favorites = useStore((s) => s.favorites);
+  const remote = useStore(hasRemote);
+  const searching = remote && !!normalizeText(query);
+  const live = useRemoteGroup('live', null, searching);
+  const movies = useRemoteGroup('movie', null, searching);
+  const series = useRemoteGroup('series', null, searching);
+  const loading = live.loading || movies.loading || series.loading;
+  const error = live.error ?? movies.error ?? series.error;
 
   const results = useMemo(() => {
     const q = normalizeText(query);
@@ -42,8 +53,21 @@ export default function SearchPage() {
     );
   }
 
+  const status = (loading || error) && (
+    <div className="mb-5">
+      {error ? (
+        <Notice tone="danger">{importErrorText(t, error)}</Notice>
+      ) : (
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <Spinner className="size-4 text-accent" /> {t('Buscando no catálogo do servidor…')}
+        </p>
+      )}
+    </div>
+  );
+
   const total = results.live.length + results.movies.length + results.series.length + results.groups.length;
   if (total === 0) {
+    if (loading) return status;
     return (
       <Empty icon={<Search className="size-10" />} title={t('Nenhum resultado para “{q}”', { q: query })}>
         <p>{t('A busca considera apenas o conteúdo das listas ativas.')}</p>
@@ -66,6 +90,7 @@ export default function SearchPage() {
   return (
     <>
       <h1 className="mb-5 text-2xl font-extrabold tracking-tight">{t('Resultados para “{q}”', { q: query })}</h1>
+      {status}
       {section(
         t('Favoritos'),
         results.favoriteHits.length + results.favoriteSeries.length,
@@ -83,7 +108,7 @@ export default function SearchPage() {
           {results.groups.map((g) => (
             <Link key={g.href} href={g.href} tabIndex={-1}>
               <Chip>
-                {g.name} <span className="ml-1 opacity-70">{g.count}</span>
+                {g.name} {g.count > 0 && <span className="ml-1 opacity-70">{g.count}</span>}
               </Chip>
             </Link>
           ))}

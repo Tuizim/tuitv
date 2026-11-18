@@ -11,11 +11,14 @@ import { Player } from '@/components/Player';
 import { Thumb } from '@/components/Thumb';
 import { Dropdown, Empty, cx } from '@/components/ui';
 import { kvGet, kvSet } from '@/lib/db';
-import { useNow, useNowNext } from '@/lib/hooks';
+import { RemoteStatus } from '@/components/Catalog';
+import { useNow, useNowNext, useRemoteConnection, useRemoteGroup } from '@/lib/hooks';
 import { formatHour, useT } from '@/lib/i18n';
-import { useStore } from '@/lib/store';
+import { hasRemote, useResolver, useStore } from '@/lib/store';
 
 const ALL = '\u0000all';
+/** Login conectando: as categorias ainda não chegaram (nada é pedido até lá). */
+const PENDING = '\u0000pending';
 const FAVORITES = '\u0000fav';
 
 export default function LivePage() {
@@ -32,8 +35,11 @@ function Live() {
   const lib = useStore((s) => s.lib);
   const favorites = useStore((s) => s.favorites);
   const recordPlayback = useStore((s) => s.recordPlayback);
+  const remote = useStore(hasRemote);
+  const resolve = useResolver();
 
-  const [group, setGroup] = useState<string>(params.get('g') ?? ALL);
+  // Com login, "Todas as categorias" pediria ao servidor a lista inteira: abre numa categoria.
+  const [chosen, setGroup] = useState<string | null>(params.get('g'));
   const [filter, setFilter] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(params.get('c'));
   const restored = useRef(false);
@@ -48,20 +54,28 @@ function Live() {
     });
   }, [params]);
 
+  const selected = selectedId ? resolve.item(selectedId) : undefined;
+  const current = selected?.kind === 'live' ? selected : undefined;
+  const group = chosen ?? (remote ? (current?.group ?? lib.liveGroups[0]?.name ?? PENDING) : ALL);
+  const load = useRemoteGroup('live', group === ALL ? null : group, group !== FAVORITES && group !== PENDING);
+  const connection = useRemoteConnection();
+
   const channels = useMemo(() => {
     let list = lib.live;
-    if (group === FAVORITES) list = list.filter((c) => favorites.has(c.id));
-    else if (group !== ALL) list = list.filter((c) => c.group === group);
+    if (group === FAVORITES) {
+      // Favoritos de logins não precisam estar carregados: vêm com nome e capa guardados.
+      list = [...favorites.values()]
+        .filter((f) => f.kind === 'live')
+        .map((f) => resolve.item(f.id))
+        .filter((c): c is MediaItem => c?.kind === 'live');
+    } else if (group !== ALL) list = list.filter((c) => c.group === group);
     const q = normalizeText(filter);
     if (q) {
       const index = new Map(lib.search.live.map((s) => [s.value, s.norm]));
-      list = list.filter((c) => index.get(c)?.includes(q));
+      list = list.filter((c) => (index.get(c) ?? normalizeText(c.name)).includes(q));
     }
     return list;
-  }, [lib, group, filter, favorites]);
-
-  const selected = selectedId ? lib.byId.get(selectedId) : undefined;
-  const current = selected?.kind === 'live' ? selected : undefined;
+  }, [lib, group, filter, favorites, resolve]);
 
   const select = (item: MediaItem) => {
     setSelectedId(item.id);
@@ -76,7 +90,8 @@ function Live() {
     if (next) select(next);
   };
 
-  if (lib.live.length === 0) {
+  if (lib.live.length === 0 && lib.liveGroups.length === 0 && !current) {
+    if (connection.pending) return <RemoteStatus load={connection} />;
     return (
       <Empty icon={<Tv className="size-10" />} title={t('Nenhum canal disponível')}>
         <p>{t('Adicione uma lista em “Minhas listas” para ver os canais aqui.')}</p>
@@ -112,9 +127,9 @@ function Live() {
             value={group}
             onChange={setGroup}
             options={[
-              { value: ALL, label: t('Todas as categorias'), hint: lib.live.length.toLocaleString() },
+              { value: ALL, label: t('Todas as categorias'), hint: remote ? undefined : lib.live.length.toLocaleString() },
               { value: FAVORITES, label: `★ ${t('Favoritos')}` },
-              ...lib.liveGroups.map((g) => ({ value: g.name, label: g.name, hint: g.count.toLocaleString() })),
+              ...lib.liveGroups.map((g) => ({ value: g.name, label: g.name, hint: g.count ? g.count.toLocaleString() : undefined })),
             ]}
           />
           <div className="relative">
@@ -129,7 +144,13 @@ function Live() {
             />
           </div>
         </div>
-        <ChannelList channels={channels} selectedId={current?.id} onSelect={select} />
+        {channels.length === 0 && (group === PENDING || load.loading || load.error) ? (
+          <div className="rounded-xl border border-line bg-surface p-4">
+            <RemoteStatus load={group === PENDING ? connection : load} />
+          </div>
+        ) : (
+          <ChannelList channels={channels} selectedId={current?.id} onSelect={select} />
+        )}
       </div>
     </div>
   );

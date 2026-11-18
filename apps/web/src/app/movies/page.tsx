@@ -16,6 +16,7 @@ function Movies() {
   const lib = useStore((s) => s.lib);
   return (
     <Catalog
+      kind="movie"
       title={t('Filmes')}
       items={lib.movies}
       groups={lib.movieGroups}

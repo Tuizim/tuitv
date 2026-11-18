@@ -5,6 +5,7 @@ import { normalizeText, type SeriesGroup } from '@tuitv/business-rules';
 import type { MediaItem } from '@tuitv/shared-models';
 import { safeImageUrl } from '@tuitv/validation';
 import { kvGet, kvSet } from './db';
+import { remoteSeriesInfo } from './xtream';
 
 /**
  * Informações complementares (sinopse, gênero, elenco…).
@@ -39,7 +40,15 @@ export function providerOf(url: string): Provider | null {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     const match = /^\/(movie|series)\/([^/]+)\/([^/]+)\/(\d+)\.\w+$/.exec(parsed.pathname);
     if (!match) return null;
-    return { base: parsed.origin, kind: match[1] as Provider['kind'], user: match[2]!, pass: match[3]!, id: match[4]! };
+    // Usuário e senha vêm codificados no caminho; a consulta os codifica de novo.
+    const decode = (part: string) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    };
+    return { base: parsed.origin, kind: match[1] as Provider['kind'], user: decode(match[2]!), pass: decode(match[3]!), id: match[4]! };
   } catch {
     return null;
   }
@@ -145,6 +154,9 @@ function seriesCatalog(playlistId: string, provider: Provider): Promise<Record<s
 }
 
 export async function seriesInfo(series: SeriesGroup): Promise<ExtraInfo | null> {
+  // Login consultado sob demanda: as informações vieram junto com a série.
+  const remote = remoteSeriesInfo(series.id);
+  if (remote) return toInfo(remote);
   const first = series.seasons[0]?.episodes[0];
   const provider = first ? providerOf(first.url) : null;
   if (!provider || provider.kind !== 'series') return null;
@@ -183,6 +195,6 @@ export function useSeriesInfo(series: SeriesGroup | undefined): ExtraInfo | null
     return () => {
       alive = false;
     };
-  }, [series]);
+  }, [series?.id, series?.seasons.length]);
   return info;
 }

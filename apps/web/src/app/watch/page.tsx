@@ -9,10 +9,10 @@ import { FavoriteButton, UnavailableBadge } from '@/components/cards';
 import { Player } from '@/components/Player';
 import { Synopsis } from '@/components/Synopsis';
 import { Empty } from '@/components/ui';
-import { itemHref, seriesHref } from '@/lib/hooks';
+import { itemHref, seriesHref, useRemoteSeries } from '@/lib/hooks';
 import { formatDuration, useT } from '@/lib/i18n';
 import { useMovieInfo, useSeriesInfo } from '@/lib/meta';
-import { seriesIdOf, useStore } from '@/lib/store';
+import { seriesIdOf, useResolver, useStore } from '@/lib/store';
 
 export default function WatchPage() {
   return (
@@ -26,8 +26,8 @@ function Watch() {
   const t = useT();
   const router = useRouter();
   const id = useSearchParams().get('id') ?? '';
-  const item = useStore((s) => s.lib.byId.get(id));
-  const lib = useStore((s) => s.lib);
+  const resolve = useResolver();
+  const item = resolve.item(id);
   const autoplay = useStore((s) => s.settings.autoplay);
   const recordPlayback = useStore((s) => s.recordPlayback);
 
@@ -38,10 +38,10 @@ function Watch() {
     resume.current = { id: item.id, at: entry && !entry.completed && entry.position > 10 ? entry.position : 0 };
   }
 
-  const series = useMemo(() => {
-    const sid = item ? seriesIdOf(item) : undefined;
-    return sid ? lib.seriesById.get(sid) : undefined;
-  }, [item, lib]);
+  const sid = item ? seriesIdOf(item) : undefined;
+  // Login: os episódios da série (para o próximo episódio) vêm do servidor.
+  useRemoteSeries(sid);
+  const series = useMemo(() => (sid ? resolve.series(sid) : undefined), [sid, resolve]);
   const next = item && series ? nextEpisode(series, item.id) : undefined;
   const movieInfo = useMovieInfo(item);
   const seriesInfo = useSeriesInfo(series);

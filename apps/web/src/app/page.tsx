@@ -9,10 +9,11 @@ import { Thumb } from '@/components/Thumb';
 import { AddSourceDialog } from '@/components/dialogs';
 import { Logo } from '@/components/Logo';
 import { Button, Notice, cx } from '@/components/ui';
-import { itemHref, seriesHref } from '@/lib/hooks';
+import { itemHref, seriesHref, useRemoteConnection, useRemoteGroup } from '@/lib/hooks';
 import { importErrorText, useT } from '@/lib/i18n';
 import { useMovieInfo, useSeriesInfo } from '@/lib/meta';
-import { useStore } from '@/lib/store';
+import { hasRemote, useResolver, useStore } from '@/lib/store';
+import type { SeriesGroup } from '@tuitv/business-rules';
 
 export default function HomePage() {
   const playlists = useStore((s) => s.playlists);
@@ -71,12 +72,15 @@ function Dashboard({ onAdd }: { onAdd: () => void }) {
   const history = useStore((s) => s.history);
   const favorites = useStore((s) => s.favorites);
   const jobs = useStore((s) => s.jobs);
+  const remote = useStore(hasRemote);
+  const connection = useRemoteConnection();
+  const resolve = useResolver();
 
   const { resume, lastChannel } = useMemo(() => {
     const resume: { item: MediaItem; progress: number }[] = [];
     let lastChannel: MediaItem | undefined;
     for (const entry of history) {
-      const item = lib.byId.get(entry.itemId);
+      const item = resolve.item(entry.itemId);
       if (!item) continue;
       if (item.kind === 'live') {
         lastChannel ??= item;
@@ -85,28 +89,31 @@ function Dashboard({ onAdd }: { onAdd: () => void }) {
       }
     }
     return { resume, lastChannel };
-  }, [history, lib]);
+  }, [history, resolve]);
 
   const favoriteItems = useMemo(() => {
     const list = [...favorites.values()].sort((a, b) => b.addedAt - a.addedAt).slice(0, 30);
     return list
-      .map((f) => (f.kind === 'series' ? { series: lib.seriesById.get(f.id) } : { item: lib.byId.get(f.id) }))
+      .map((f) => (f.kind === 'series' ? { series: resolve.series(f.id) } : { item: resolve.item(f.id) }))
       // A tela inicial mostra apenas filmes e séries; canais favoritos ficam em Favoritos e na TV ao vivo.
       .filter((f) => f.series || f.item?.kind === 'movie');
-  }, [favorites, lib]);
+  }, [favorites, resolve]);
 
   // Fileiras por categoria: as primeiras categorias de cada tipo, na ordem das listas.
+  // Com login, cada fileira é pedida ao servidor; por isso são menos fileiras.
   const groupRows = useMemo(() => {
-    const take = <T extends { group?: string }>(items: T[], groups: { name: string }[], limit: number) =>
+    const limit = remote ? 3 : 6;
+    const take = <T extends { group?: string }>(items: T[], groups: { name: string }[]) =>
       groups.slice(0, limit).map((g) => ({ name: g.name, items: items.filter((i) => i.group === g.name).slice(0, 20) }));
     return {
-      movies: take(lib.movies, lib.movieGroups, 6),
-      series: take(lib.series, lib.seriesGroups, 6),
+      movies: take(lib.movies, lib.movieGroups),
+      series: take(lib.series, lib.seriesGroups),
     };
-  }, [lib]);
+  }, [lib, remote]);
 
   const failed = jobs.filter((j) => j.status === 'error');
-  const empty = lib.live.length + lib.movies.length + lib.series.length === 0;
+  const empty =
+    !connection.loading && lib.live.length + lib.movies.length + lib.series.length === 0 && lib.liveGroups.length + lib.movieGroups.length + lib.seriesGroups.length === 0;
 
   return (
     <>
@@ -160,24 +167,34 @@ function Dashboard({ onAdd }: { onAdd: () => void }) {
       )}
 
       {groupRows.movies.map((row) => (
-        <Row key={`m${row.name}`} title={row.name} href={`/movies?g=${encodeURIComponent(row.name)}`}>
-          {row.items.map((item) => (
+        <GroupRow key={`m${row.name}`} kind="movie" name={row.name} items={row.items} />
+      ))}
+      {groupRows.series.map((row) => (
+        <GroupRow key={`s${row.name}`} kind="series" name={row.name} items={row.items} />
+      ))}
+    </>
+  );
+}
+
+/** Fileira de uma categoria; com login, os títulos são pedidos ao servidor quando a fileira aparece. */
+function GroupRow(props: { kind: 'movie'; name: string; items: MediaItem[] } | { kind: 'series'; name: string; items: SeriesGroup[] }) {
+  useRemoteGroup(props.kind, props.name, props.items.length === 0);
+  if (props.items.length === 0) return null;
+  const href = `/${props.kind === 'movie' ? 'movies' : 'series'}?g=${encodeURIComponent(props.name)}`;
+  return (
+    <Row title={props.name} href={href}>
+      {props.kind === 'movie'
+        ? props.items.map((item) => (
             <div key={item.id} className={POSTER_SLOT}>
               <MovieCard item={item} />
             </div>
-          ))}
-        </Row>
-      ))}
-      {groupRows.series.map((row) => (
-        <Row key={`s${row.name}`} title={row.name} href={`/series?g=${encodeURIComponent(row.name)}`}>
-          {row.items.map((series) => (
+          ))
+        : props.items.map((series) => (
             <div key={series.id} className={POSTER_SLOT}>
               <SeriesCard series={series} />
             </div>
           ))}
-        </Row>
-      ))}
-    </>
+    </Row>
   );
 }
 

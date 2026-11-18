@@ -6,6 +6,8 @@ export type ImportErrorCode =
   | 'url-scheme'
   | 'url-private'
   | 'login-missing'
+  | 'login-invalid'
+  | 'account-inactive'
   | 'offline'
   | 'mixed-content'
   | 'network-or-cors'

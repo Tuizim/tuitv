@@ -5,7 +5,9 @@ import { create } from 'zustand';
 import { nowNext, resolveEpgChannel, type NowNext } from '@tuitv/business-rules';
 import type { MediaItem, Programme } from '@tuitv/shared-models';
 import { getProgrammes } from './db';
-import { useStore } from './store';
+import type { ImportError } from './net';
+import { hasRemote, useStore } from './store';
+import type { RemoteKind } from './xtream';
 
 /** Estado efêmero de interface (não persistido). */
 export const useUi = create<{ query: string; setQuery: (query: string) => void }>((set) => ({
@@ -67,6 +69,76 @@ export function useNowNext(item: MediaItem | undefined, upcoming = 3): NowNext {
     };
   }, [key, version]);
   return rows ? nowNext(rows, now, upcoming) : EMPTY;
+}
+
+export interface RemoteLoad {
+  loading: boolean;
+  error: ImportError | null;
+  retry: () => void;
+}
+
+/**
+ * Pede ao servidor de um login uma categoria (ou todas, com group = null) quando a tela precisa dela.
+ * Sem logins ativos, ou com `enabled` falso, não faz nada. Repetir o pedido não refaz a consulta.
+ */
+export function useRemoteGroup(kind: RemoteKind, group: string | null, enabled = true): RemoteLoad {
+  const remote = useStore(hasRemote);
+  const loadRemote = useStore((s) => s.loadRemote);
+  const [state, setState] = useState<{ loading: boolean; error: ImportError | null }>({ loading: false, error: null });
+  const [attempt, setAttempt] = useState(0);
+  const active = remote && enabled;
+  useEffect(() => {
+    if (!active) {
+      setState({ loading: false, error: null });
+      return;
+    }
+    let alive = true;
+    setState({ loading: true, error: null });
+    loadRemote(kind, group).then(
+      () => alive && setState({ loading: false, error: null }),
+      (error: ImportError) => alive && setState({ loading: false, error }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [active, kind, group, loadRemote, attempt]);
+  return { ...state, retry: () => setAttempt((n) => n + 1) };
+}
+
+/**
+ * Conexão dos logins ativos (conta e categorias). `loading` enquanto as categorias não chegaram;
+ * `error` quando nenhum login conectou.
+ */
+export function useRemoteConnection(): RemoteLoad & { pending: boolean } {
+  const connecting = useStore((s) => s.connecting.size > 0);
+  const playlists = useStore((s) => s.playlists);
+  const errors = useStore((s) => s.remoteErrors);
+  const connectRemote = useStore((s) => s.connectRemote);
+  const active = playlists.filter((p) => p.active && p.provider === 'xtream');
+  const failed = active.filter((p) => errors.has(p.id));
+  const error = !connecting && active.length > 0 && failed.length === active.length ? errors.get(failed[0]!.id)! : null;
+  return { pending: connecting || !!error, loading: connecting, error, retry: () => void connectRemote().catch(() => undefined) };
+}
+
+/** Episódios de uma série de login, carregados ao abrir a série. */
+export function useRemoteSeries(seriesId: string | undefined): RemoteLoad {
+  const loadRemoteSeries = useStore((s) => s.loadRemoteSeries);
+  const [state, setState] = useState<{ loading: boolean; error: ImportError | null }>({ loading: false, error: null });
+  const [attempt, setAttempt] = useState(0);
+  const remote = !!seriesId && seriesId.includes(':s:x');
+  useEffect(() => {
+    if (!remote || !seriesId) return;
+    let alive = true;
+    setState({ loading: true, error: null });
+    loadRemoteSeries(seriesId).then(
+      () => alive && setState({ loading: false, error: null }),
+      (error: ImportError) => alive && setState({ loading: false, error }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [remote, seriesId, loadRemoteSeries, attempt]);
+  return { ...state, retry: () => setAttempt((n) => n + 1) };
 }
 
 export const itemHref = (item: MediaItem): string =>

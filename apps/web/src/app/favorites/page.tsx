@@ -7,12 +7,12 @@ import type { ContentKind, MediaItem } from '@tuitv/shared-models';
 import { ChannelCard, MovieCard, SeriesCard, VirtualGrid } from '@/components/cards';
 import { Chip, Empty, PageHeader } from '@/components/ui';
 import { useT } from '@/lib/i18n';
-import { useStore } from '@/lib/store';
+import { useResolver, useStore } from '@/lib/store';
 
 export default function FavoritesPage() {
   const t = useT();
   const favorites = useStore((s) => s.favorites);
-  const lib = useStore((s) => s.lib);
+  const resolve = useResolver();
   const [tab, setTab] = useState<ContentKind | null>(null);
 
   const { live, movies, series } = useMemo(() => {
@@ -22,15 +22,15 @@ export default function FavoritesPage() {
     const series: SeriesGroup[] = [];
     for (const favorite of sorted) {
       if (favorite.kind === 'series') {
-        const group = lib.seriesById.get(favorite.id);
+        const group = resolve.series(favorite.id);
         if (group) series.push(group);
       } else {
-        const item = lib.byId.get(favorite.id);
+        const item = resolve.item(favorite.id);
         if (item) (item.kind === 'live' ? live : movies).push(item);
       }
     }
     return { live, movies, series };
-  }, [favorites, lib]);
+  }, [favorites, resolve]);
 
   const tabs: { kind: ContentKind; label: string; count: number }[] = [
     { kind: 'live', label: t('Canais'), count: live.length },

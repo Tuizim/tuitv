@@ -55,6 +55,7 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
   const setActive = useStore((s) => s.setPlaylistActive);
   const deletePlaylist = useStore((s) => s.deletePlaylist);
   const toast = useStore((s) => s.toast);
+  const remoteError = useStore((s) => s.remoteErrors.get(playlist.id));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -66,7 +67,7 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
     setError(null);
     try {
       await refreshPlaylist(playlist.id, file);
-      toast(t('Lista “{name}” atualizada.', { name: playlist.name }), 'success');
+      toast(remote ? t('Conexão com “{name}” renovada.', { name: playlist.name }) : t('Lista “{name}” atualizada.', { name: playlist.name }), 'success');
     } catch (err) {
       setError(importErrorText(t, err));
     } finally {
@@ -76,7 +77,9 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
 
   const isUrl = playlist.source === 'url';
   const login = isUrl && playlist.url ? parseXtreamUrl(playlist.url) : undefined;
-  const pending = isUrl && playlist.itemCount === 0;
+  const remote = playlist.provider === 'xtream';
+  const account = playlist.account;
+  const pending = isUrl && !remote && playlist.itemCount === 0;
 
   return (
     <article className="rounded-2xl border border-line bg-surface p-5" data-testid="playlist-card">
@@ -101,12 +104,20 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
-        {[
-          [t('Conteúdos'), playlist.itemCount.toLocaleString()],
-          [t('Canais'), playlist.counts.live.toLocaleString()],
-          [t('Filmes'), playlist.counts.movie.toLocaleString()],
-          [t('Episódios'), playlist.counts.series.toLocaleString()],
-        ].map(([label, value]) => (
+        {(remote
+          ? [
+              [t('Categorias de canais'), (account?.categories.live ?? 0).toLocaleString()],
+              [t('Categorias de filmes'), (account?.categories.movie ?? 0).toLocaleString()],
+              [t('Categorias de séries'), (account?.categories.series ?? 0).toLocaleString()],
+              [t('Vencimento'), account?.expiresAt ? formatDate(account.expiresAt, language) : '—'],
+            ]
+          : [
+              [t('Conteúdos'), playlist.itemCount.toLocaleString()],
+              [t('Canais'), playlist.counts.live.toLocaleString()],
+              [t('Filmes'), playlist.counts.movie.toLocaleString()],
+              [t('Episódios'), playlist.counts.series.toLocaleString()],
+            ]
+        ).map(([label, value]) => (
           <div key={label}>
             <dt className="text-xs text-muted">{label}</dt>
             <dd className="font-semibold tabular-nums">{value}</dd>
@@ -114,9 +125,16 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
         ))}
       </dl>
       <p className="mt-3 text-xs text-muted">
-        {t('Atualizada em {date}', { date: formatDate(playlist.updatedAt, language) })}
+        {remote
+          ? t('Consultada no servidor sob demanda: nada do catálogo fica guardado neste dispositivo.')
+          : t('Atualizada em {date}', { date: formatDate(playlist.updatedAt, language) })}
         {!!playlist.skipped && ` · ${t('{n} registros inválidos ignorados', { n: playlist.skipped })}`}
       </p>
+      {remote && remoteError && !error && (
+        <div className="mt-3">
+          <Notice tone="danger">{importErrorText(t, remoteError)}</Notice>
+        </div>
+      )}
 
       {pending && !busy && <div className="mt-3"><Notice>{t('Lista restaurada de um backup. Atualize para baixar o conteúdo.')}</Notice></div>}
       {error && <div className="mt-3"><Notice tone="danger">{error}</Notice></div>}

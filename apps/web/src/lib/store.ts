@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import {
   backupHasCredentials,
@@ -24,11 +25,13 @@ import {
   type Playlist,
   type Settings,
 } from '@tuitv/shared-models';
-import { MAX_EPG_BYTES, MAX_PLAYLIST_BYTES, cleanName } from '@tuitv/validation';
+import { MAX_EPG_BYTES, MAX_PLAYLIST_BYTES, cleanName, parseXtreamUrl, xtreamEpgUrl } from '@tuitv/validation';
 import * as local from './db';
 import { importEpg, importPlaylistItems } from './importer';
-import { EMPTY_LIBRARY, buildLibrary, type Library } from './library';
+import { EMPTY_LIBRARY, EMPTY_REMOTE, buildLibrary, type Library, type RemoteView } from './library';
 import { ImportError, checkedUrl, fetchSource, fileSource, uid, type ByteSource } from './net';
+import * as xtream from './xtream';
+import type { SeriesGroup } from '@tuitv/business-rules';
 
 export interface Job {
   id: string;
@@ -64,6 +67,10 @@ interface State {
   epgIndex: EpgIndex;
   epgVersion: number;
   unavailable: Set<string>;
+  /** Falha ao conectar a um login consultado sob demanda, por lista. */
+  remoteErrors: Map<string, ImportError>;
+  /** Logins conectando agora (conta e categorias a caminho). */
+  connecting: Set<string>;
   parentalUnlocked: boolean;
   jobs: Job[];
   toasts: Toast[];
@@ -80,6 +87,13 @@ interface Actions {
   renamePlaylist(id: string, name: string): Promise<void>;
   setPlaylistActive(id: string, active: boolean): Promise<void>;
   deletePlaylist(id: string): Promise<void>;
+
+  /** Conecta os logins Xtream ativos (conta e categorias), sem baixar o catálogo. */
+  connectRemote(): Promise<void>;
+  /** Carrega do servidor uma categoria (ou todas, com group = null) dos logins ativos. */
+  loadRemote(kind: xtream.RemoteKind, group: string | null): Promise<void>;
+  /** Carrega os episódios de uma série de um login. */
+  loadRemoteSeries(seriesId: string): Promise<void>;
 
   toggleFavorite(id: string, kind: ContentKind, playlistId: string): void;
   recordPlayback(item: MediaItem, position: number, duration: number): void;
@@ -142,6 +156,55 @@ function applyTheme(settings: Settings) {
   flag(THEME_FLAG, settings.theme);
 }
 
+/** Catálogo remoto de um login, só em memória (nada disso é gravado no dispositivo). */
+interface RemoteCache {
+  categories: Record<xtream.RemoteKind, xtream.RemoteCategory[]>;
+  names: Record<xtream.RemoteKind, Map<string, string>>;
+  /** `${kind}|${categoryId}` já carregados; `${kind}|*` = todas. */
+  loaded: Set<string>;
+  items: Map<string, MediaItem>;
+  series: Map<string, SeriesGroup>;
+  /** Séries com episódios carregados. */
+  full: Set<string>;
+}
+const remotes = new Map<string, RemoteCache>();
+const inflight = new Map<string, Promise<void>>();
+
+function remoteCache(categories: Record<xtream.RemoteKind, xtream.RemoteCategory[]>): RemoteCache {
+  const names = (kind: xtream.RemoteKind) => new Map(categories[kind].map((c) => [c.id, c.name]));
+  return {
+    categories,
+    names: { live: names('live'), movie: names('movie'), series: names('series') },
+    loaded: new Set(),
+    items: new Map(),
+    series: new Map(),
+    full: new Set(),
+  };
+}
+
+/** Conteúdo remoto já carregado dos logins ativos, para montar a biblioteca. */
+function remoteView(playlists: Playlist[]): RemoteView {
+  const active = playlists.filter((p) => p.active && xtream.isXtream(p)).map((p) => remotes.get(p.id)).filter((c): c is RemoteCache => !!c);
+  if (!active.length) return EMPTY_REMOTE;
+  const view: RemoteView = { items: [], series: [], groups: { live: [], movie: [], series: [] } };
+  for (const cache of active) {
+    for (const item of cache.items.values()) view.items.push(item);
+    for (const series of cache.series.values()) view.series.push(series);
+    for (const kind of xtream.REMOTE_KINDS) for (const c of cache.categories[kind]) view.groups[kind].push(c.name);
+  }
+  return view;
+}
+
+/** Executa uma vez por chave enquanto estiver em andamento. */
+function once(key: string, run: () => Promise<void>): Promise<void> {
+  let job = inflight.get(key);
+  if (!job) {
+    job = run().finally(() => inflight.delete(key));
+    inflight.set(key, job);
+  }
+  return job;
+}
+
 let initPromise: Promise<void> | null = null;
 let autoRefreshing = false;
 const autoAttempts = new Map<string, number>();
@@ -154,8 +217,86 @@ function recentlyTried(id: string): boolean {
 }
 
 export const useStore = create<State & Actions>((set, get) => {
-  const relib = (items: MediaItem[], settings = get().settings, unlocked = get().parentalUnlocked) =>
-    buildLibrary(items, settings.parental, unlocked);
+  const relib = (items: MediaItem[] = get().items, settings = get().settings, unlocked = get().parentalUnlocked, playlists = get().playlists) =>
+    buildLibrary(items, settings.parental, unlocked, remoteView(playlists));
+
+  const timeout = () => get().settings.connectionTimeout;
+
+  /** Conecta um login: valida a conta e lê as categorias. */
+  const connectPlaylist = (playlist: Playlist): Promise<void> =>
+    once(`connect|${playlist.id}`, async () => {
+      const login = xtream.loginOf(playlist);
+      if (!login) return;
+      set((s) => ({ connecting: new Set(s.connecting).add(playlist.id) }));
+      try {
+        const connection = await xtream.connect(login, Math.max(timeout(), 20));
+        remotes.set(playlist.id, remoteCache(connection.categories));
+        const updated: Playlist = { ...playlist, account: connection.account, updatedAt: Date.now() };
+        await local.putPlaylist(updated).catch(() => undefined);
+        set((s) => {
+          const remoteErrors = new Map(s.remoteErrors);
+          remoteErrors.delete(playlist.id);
+          const playlists = s.playlists.map((p) => (p.id === playlist.id ? { ...updated, name: p.name, active: p.active } : p));
+          return { playlists, remoteErrors, lib: relib(s.items, s.settings, s.parentalUnlocked, playlists) };
+        });
+      } catch (error) {
+        const importError =
+          error instanceof ImportError ? error : error instanceof xtream.NoXtreamApi ? new ImportError('http', '404') : new ImportError('network-or-cors');
+        set((s) => ({ remoteErrors: new Map(s.remoteErrors).set(playlist.id, importError) }));
+        throw importError;
+      } finally {
+        set((s) => {
+          const connecting = new Set(s.connecting);
+          connecting.delete(playlist.id);
+          return { connecting };
+        });
+      }
+    });
+
+  /** Cache do login, conectando se ainda não estiver conectado. */
+  const cacheOf = async (playlist: Playlist): Promise<RemoteCache | undefined> => {
+    if (!remotes.has(playlist.id)) await connectPlaylist(playlist).catch(() => undefined);
+    return remotes.get(playlist.id);
+  };
+
+  const activeRemotes = () => get().playlists.filter((p) => p.active && xtream.isXtream(p));
+
+  /** Lista convertida (ou criada) como login consultado sob demanda. */
+  const saveRemotePlaylist = async (playlist: Playlist, connection: xtream.Connection, isNew: boolean): Promise<Playlist> => {
+    const updated: Playlist = {
+      ...playlist,
+      provider: 'xtream',
+      account: connection.account,
+      updatedAt: Date.now(),
+      itemCount: 0,
+      counts: { live: 0, movie: 0, series: 0 },
+    };
+    delete updated.skipped;
+    remotes.set(updated.id, remoteCache(connection.categories));
+    if (!isNew) await local.deletePlaylistItems(updated.id);
+    await local.putPlaylist(updated);
+    flag(LOST_FLAG, '1');
+    set((s) => {
+      const playlists = isNew ? [...s.playlists, updated] : s.playlists.map((p) => (p.id === updated.id ? updated : p));
+      const items = s.items.filter((i) => i.playlistId !== updated.id);
+      const remoteErrors = new Map(s.remoteErrors);
+      remoteErrors.delete(updated.id);
+      return { playlists, items, remoteErrors, lib: relib(items, s.settings, s.parentalUnlocked, playlists), dataLost: false };
+    });
+    return updated;
+  };
+
+  /** Tenta usar a API do login; null quando o servidor não a oferece (segue com a lista M3U). */
+  const tryConnect = async (url: string | undefined): Promise<xtream.Connection | null> => {
+    const login = url ? parseXtreamUrl(url) : undefined;
+    if (!login) return null;
+    try {
+      return await xtream.connect(login, Math.max(timeout(), 20));
+    } catch (error) {
+      if (error instanceof xtream.NoXtreamApi) return null;
+      throw error;
+    }
+  };
 
   const job = (id: string, patch: Partial<Job>) =>
     set((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)) }));
@@ -274,6 +415,8 @@ export const useStore = create<State & Actions>((set, get) => {
     epgIndex: emptyIndex,
     epgVersion: 0,
     unavailable: new Set(),
+    remoteErrors: new Map(),
+    connecting: new Set(),
     parentalUnlocked: false,
     jobs: [],
     toasts: [],
@@ -290,7 +433,8 @@ export const useStore = create<State & Actions>((set, get) => {
           const persisted = await local.loadState();
           const settings = mergeSettings(persisted.settings);
           applyTheme(settings);
-          const active = persisted.playlists.filter((p) => p.active).map((p) => p.id);
+          // Logins consultados sob demanda não têm itens guardados.
+          const active = persisted.playlists.filter((p) => p.active && !xtream.isXtream(p)).map((p) => p.id);
           const items = await local.loadItems(active);
           const { map, index } = indexEpg(persisted.epgChannels);
           set({
@@ -298,7 +442,7 @@ export const useStore = create<State & Actions>((set, get) => {
             dataLost: hadFlag && persisted.playlists.length === 0 && !persisted.hadData,
             playlists: persisted.playlists,
             items,
-            lib: buildLibrary(items, settings.parental, false),
+            lib: buildLibrary(items, settings.parental, false, remoteView(persisted.playlists)),
             favorites: new Map(persisted.favorites.map((f) => [f.id, f])),
             history: persisted.history,
             historyById: new Map(persisted.history.map((h) => [h.itemId, h])),
@@ -313,6 +457,8 @@ export const useStore = create<State & Actions>((set, get) => {
           applyTheme(DEFAULT_SETTINGS);
           set({ ready: true });
         }
+        // Conecta os logins em segundo plano: a interface abre sem esperar o servidor.
+        void get().connectRemote();
       })();
       return initPromise;
     },
@@ -341,6 +487,12 @@ export const useStore = create<State & Actions>((set, get) => {
       else playlist.url = checkedUrl(url ?? '', get().settings.allowPrivateHosts);
       // Guia conhecido de antemão (login Xtream); um guia anunciado pela própria lista tem prioridade.
       if (epgUrl && !file) playlist.epgUrl = epgUrl;
+      // Login Xtream: nada é importado, o conteúdo é consultado no servidor quando a tela precisa.
+      const connection = file ? null : await tryConnect(playlist.url);
+      if (connection) {
+        playlist.epgUrl ??= xtreamEpg(playlist.url!);
+        return saveRemotePlaylist(playlist, connection, true);
+      }
       return runPlaylistImport(playlist, file, true);
     },
 
@@ -348,6 +500,19 @@ export const useStore = create<State & Actions>((set, get) => {
       const playlist = get().playlists.find((p) => p.id === id);
       if (!playlist) return;
       if (playlist.source === 'file' && !file) throw new ImportError('url-empty');
+      if (xtream.isXtream(playlist)) {
+        // Reconecta e descarta o que foi carregado: categorias e conteúdo voltam a ser lidos do servidor.
+        remotes.delete(id);
+        await connectPlaylist(playlist);
+        set((s) => ({ lib: relib(s.items) }));
+        return;
+      }
+      // Lista antiga importada de um login: passa a ser consultada sob demanda (libera o armazenamento).
+      const connection = file ? null : await tryConnect(playlist.url);
+      if (connection) {
+        await saveRemotePlaylist(playlist, connection, false);
+        return;
+      }
       await runPlaylistImport(playlist, file, false);
     },
 
@@ -365,25 +530,83 @@ export const useStore = create<State & Actions>((set, get) => {
       const updated = { ...playlist, active };
       await local.putPlaylist(updated);
       const others = get().items.filter((i) => i.playlistId !== id);
-      const items = active ? [...others, ...(await local.loadItems([id]))] : others;
-      set((s) => ({ playlists: s.playlists.map((p) => (p.id === id ? updated : p)), items, lib: relib(items) }));
+      const remote = xtream.isXtream(playlist);
+      const items = active && !remote ? [...others, ...(await local.loadItems([id]))] : others;
+      const playlists = get().playlists.map((p) => (p.id === id ? updated : p));
+      set((s) => ({ playlists, items, lib: relib(items, s.settings, s.parentalUnlocked, playlists) }));
+      if (active && remote) void connectPlaylist(updated).catch(() => undefined);
     },
 
     async deletePlaylist(id) {
       await local.deletePlaylist(id);
+      remotes.delete(id);
       set((s) => {
         const items = s.items.filter((i) => i.playlistId !== id);
         const favorites = new Map([...s.favorites].filter(([, f]) => f.playlistId !== id));
         const history = s.history.filter((h) => h.playlistId !== id);
+        const playlists = s.playlists.filter((p) => p.id !== id);
         return {
-          playlists: s.playlists.filter((p) => p.id !== id),
+          playlists,
           items,
-          lib: relib(items),
+          lib: relib(items, s.settings, s.parentalUnlocked, playlists),
           favorites,
           history,
           historyById: new Map(history.map((h) => [h.itemId, h])),
         };
       });
+    },
+
+    async connectRemote() {
+      // Antes da primeira resposta, as telas já sabem que há logins conectando.
+      const pending = activeRemotes().filter((p) => !remotes.has(p.id));
+      if (pending.length) set((s) => ({ connecting: new Set([...s.connecting, ...pending.map((p) => p.id)]) }));
+      await Promise.all(activeRemotes().map((p) => cacheOf(p)));
+    },
+
+    async loadRemote(kind, group) {
+      const jobs = activeRemotes().map(async (playlist) => {
+        const cache = await cacheOf(playlist);
+        const login = xtream.loginOf(playlist);
+        if (!cache || !login || cache.loaded.has(`${kind}|*`)) return false;
+        const ids = group === null ? [undefined] : cache.categories[kind].filter((c) => c.name === group).map((c) => c.id);
+        const pending = ids.filter((cid) => !cache.loaded.has(`${kind}|${cid ?? '*'}`));
+        if (!pending.length) return false;
+        await Promise.all(
+          pending.map((cid) =>
+            once(`load|${playlist.id}|${kind}|${cid ?? '*'}`, async () => {
+              const names = cache.names[kind];
+              if (kind === 'series') {
+                for (const series of await xtream.seriesList(playlist.id, login, names, cid, timeout())) {
+                  if (!cache.full.has(series.id)) cache.series.set(series.id, series);
+                }
+              } else {
+                for (const item of await xtream.streams(playlist.id, login, kind, names, cid, timeout())) cache.items.set(item.id, item);
+              }
+              cache.loaded.add(`${kind}|${cid ?? '*'}`);
+            }),
+          ),
+        );
+        return true;
+      });
+      const results = await Promise.allSettled(jobs);
+      if (results.some((r) => r.status === 'fulfilled' && r.value)) set((s) => ({ lib: relib(s.items) }));
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed) throw failed.reason instanceof ImportError ? failed.reason : new ImportError('network-or-cors');
+    },
+
+    async loadRemoteSeries(seriesId) {
+      const playlist = activeRemotes().find((p) => xtream.remoteSeriesId(p.id, seriesId));
+      const login = playlist && xtream.loginOf(playlist);
+      if (!playlist || !login) return;
+      const cache = await cacheOf(playlist);
+      if (!cache || cache.full.has(seriesId)) return;
+      await once(`series|${seriesId}`, async () => {
+        const sid = xtream.remoteSeriesId(playlist.id, seriesId)!;
+        const series = await xtream.seriesEpisodes(playlist.id, login, sid, cache.series.get(seriesId), cache.names.series, timeout());
+        cache.series.set(seriesId, series);
+        cache.full.add(seriesId);
+      });
+      set((s) => ({ lib: relib(s.items) }));
     },
 
     toggleFavorite(id, kind, playlistId) {
@@ -393,6 +616,18 @@ export const useStore = create<State & Actions>((set, get) => {
         void local.deleteFavorite(id);
       } else {
         const favorite: Favorite = { id, kind, playlistId, addedAt: Date.now() };
+        // Nome e capa guardados com o favorito: itens de logins não ficam no dispositivo.
+        const lib = get().lib;
+        const series = kind === 'series' ? lib.seriesById.get(id) : undefined;
+        const item = kind !== 'series' ? lib.byId.get(id) : undefined;
+        const source = series ? { name: series.title, logo: series.logo, group: series.group, year: series.year } : item;
+        if (source) {
+          const snapshot: NonNullable<Favorite['snapshot']> = { name: source.name };
+          if (source.logo) snapshot.logo = source.logo;
+          if (source.group) snapshot.group = source.group;
+          if (source.year) snapshot.year = source.year;
+          favorite.snapshot = snapshot;
+        }
         favorites.set(id, favorite);
         void local.putFavorite(favorite);
       }
@@ -443,7 +678,7 @@ export const useStore = create<State & Actions>((set, get) => {
       const settings = { ...get().settings, ...patch };
       applyTheme(settings);
       const parentalChanged = patch.parental !== undefined;
-      set((s) => ({ settings, lib: parentalChanged ? buildLibrary(s.items, settings.parental, s.parentalUnlocked) : s.lib }));
+      set((s) => ({ settings, lib: parentalChanged ? relib(s.items, settings, s.parentalUnlocked) : s.lib }));
       void local.kvSet('settings', settings);
     },
 
@@ -466,12 +701,12 @@ export const useStore = create<State & Actions>((set, get) => {
 
     async unlock(pin) {
       const ok = await verifyPin(pin, get().settings.parental);
-      if (ok) set((s) => ({ parentalUnlocked: true, lib: buildLibrary(s.items, s.settings.parental, true) }));
+      if (ok) set((s) => ({ parentalUnlocked: true, lib: relib(s.items, s.settings, true) }));
       return ok;
     },
 
     lock() {
-      set((s) => ({ parentalUnlocked: false, lib: buildLibrary(s.items, s.settings.parental, false) }));
+      set((s) => ({ parentalUnlocked: false, lib: relib(s.items, s.settings, false) }));
     },
 
     async addEpg({ name, url, file }) {
@@ -539,7 +774,9 @@ export const useStore = create<State & Actions>((set, get) => {
       for (const { playlist, items } of data.playlists) {
         if (existing.has(playlist.id)) continue;
         const safe: Playlist = { ...playlist, name: cleanName(playlist.name, 'Lista') };
-        if (safe.source === 'url') {
+        if (safe.provider === 'xtream') {
+          // Login consultado sob demanda: não há conteúdo a baixar, conecta ao abrir.
+        } else if (safe.source === 'url') {
           // Listas remotas voltam com o endereço; o conteúdo é baixado de novo na próxima atualização.
           safe.itemCount = 0;
           safe.counts = { live: 0, movie: 0, series: 0 };
@@ -562,7 +799,7 @@ export const useStore = create<State & Actions>((set, get) => {
       initPromise = null;
       const unlocked = current.parentalUnlocked;
       await get().init();
-      if (unlocked) set((s) => ({ parentalUnlocked: true, lib: buildLibrary(s.items, s.settings.parental, true) }));
+      if (unlocked) set((s) => ({ parentalUnlocked: true, lib: relib(s.items, s.settings, true) }));
       return { playlists: restored, pendingRefresh };
     },
 
@@ -573,7 +810,7 @@ export const useStore = create<State & Actions>((set, get) => {
       try {
         const limit = Date.now() - hours * 3_600_000;
         for (const playlist of get().playlists) {
-          if (playlist.source !== 'url' || !playlist.active || playlist.updatedAt > limit || recentlyTried(playlist.id)) continue;
+          if (playlist.source !== 'url' || xtream.isXtream(playlist) || !playlist.active || playlist.updatedAt > limit || recentlyTried(playlist.id)) continue;
           // Falhas ficam registradas no cartão de importação; a biblioteca anterior é preservada.
           await get().refreshPlaylist(playlist.id).catch(() => undefined);
         }
@@ -597,6 +834,7 @@ export const useStore = create<State & Actions>((set, get) => {
 
     async deleteAllData() {
       await local.wipeAll();
+      remotes.clear();
       if (typeof caches !== 'undefined') {
         for (const key of await caches.keys()) await caches.delete(key);
       }
@@ -618,6 +856,8 @@ export const useStore = create<State & Actions>((set, get) => {
         epgIndex: emptyIndex,
         epgVersion: 0,
         unavailable: new Set(),
+        remoteErrors: new Map(),
+        connecting: new Set(),
         parentalUnlocked: false,
         jobs: [],
       });
@@ -626,3 +866,58 @@ export const useStore = create<State & Actions>((set, get) => {
 });
 
 export const seriesIdOf = (item: MediaItem) => (item.series ? makeSeriesId(item.playlistId, item.series.seriesKey) : undefined);
+
+/** Endereço do guia (xmltv.php) do mesmo login de uma lista get.php. */
+function xtreamEpg(url: string): string | undefined {
+  const login = parseXtreamUrl(url);
+  return login ? xtreamEpgUrl(login) : undefined;
+}
+
+type StoreState = State & Actions;
+
+/**
+ * Item por id: da biblioteca carregada ou, para logins consultados sob demanda, reconstruído a partir do id
+ * com nome e capa do favorito/histórico (sem consultar o servidor).
+ */
+type Resolvable = Pick<StoreState, 'lib' | 'playlists' | 'historyById' | 'favorites'>;
+
+export function resolveItem(s: Resolvable, id: string): MediaItem | undefined {
+  const loaded = s.lib.byId.get(id);
+  if (loaded) return loaded;
+  const playlist = s.playlists.find((p) => p.active && xtream.isXtream(p) && id.startsWith(`${p.id}:`));
+  if (!playlist) return undefined;
+  const history = s.historyById.get(id);
+  const favorite = s.favorites.get(id)?.snapshot;
+  const meta = favorite ?? (history ? { name: history.name, logo: history.logo } : undefined);
+  if (!meta?.name) return undefined;
+  return xtream.itemFromId(playlist, id, meta);
+}
+
+/** Série por id: da biblioteca ou, de um login, um resumo com o nome e a capa do favorito (episódios carregam ao abrir). */
+export function resolveSeries(s: Resolvable, id: string): SeriesGroup | undefined {
+  const loaded = s.lib.seriesById.get(id);
+  if (loaded) return loaded;
+  const playlist = s.playlists.find((p) => p.active && xtream.isXtream(p) && xtream.remoteSeriesId(p.id, id));
+  const snapshot = s.favorites.get(id)?.snapshot;
+  if (!playlist || !snapshot) return undefined;
+  const series: SeriesGroup = { id, playlistId: playlist.id, title: snapshot.name, seasons: [], episodeCount: 0 };
+  if (snapshot.logo) series.logo = snapshot.logo;
+  if (snapshot.group) series.group = snapshot.group;
+  if (snapshot.year) series.year = snapshot.year;
+  return series;
+}
+
+/** Resolvedores ligados ao estado atual (para listas de favoritos e histórico). */
+export function useResolver() {
+  const lib = useStore((s) => s.lib);
+  const playlists = useStore((s) => s.playlists);
+  const historyById = useStore((s) => s.historyById);
+  const favorites = useStore((s) => s.favorites);
+  return useMemo(() => {
+    const state = { lib, playlists, historyById, favorites };
+    return { item: (id: string) => resolveItem(state, id), series: (id: string) => resolveSeries(state, id) };
+  }, [lib, playlists, historyById, favorites]);
+}
+
+/** Algum login consultado sob demanda está ativo. */
+export const hasRemote = (s: StoreState) => s.playlists.some((p) => p.active && xtream.isXtream(p));

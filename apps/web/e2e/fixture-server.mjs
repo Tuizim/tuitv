@@ -28,6 +28,77 @@ function big(count) {
   return lines.join('\n');
 }
 
+/**
+ * Provedor Xtream Codes simulado (usuário "joão", senha "s&nha"): mesmos canais de basic.m3u,
+ * mais filmes e uma série, servidos pela API player_api.php por categoria.
+ */
+const XT = {
+  live_categories: [
+    { category_id: '1', category_name: 'Abertos', parent_id: 0 },
+    { category_id: '2', category_name: 'Esportes', parent_id: 0 },
+    { category_id: '3', category_name: 'Notícias', parent_id: 0 },
+  ],
+  live: [
+    { num: 1, name: 'Canal Um HD', stream_type: 'live', stream_id: 11, stream_icon: 'https://example.org/logos/um.png', epg_channel_id: 'canal.um', category_id: '1' },
+    { num: 2, name: 'Canal Dois', stream_type: 'live', stream_id: 12, stream_icon: 'https://example.org/logos/dois.png', epg_channel_id: 'canal.dois', category_id: '1' },
+    { num: 3, name: 'Canal Um SD', stream_type: 'live', stream_id: 13, stream_icon: '', epg_channel_id: 'canal.um', category_id: '1' },
+    { num: 4, name: 'Esporte 1', stream_type: 'live', stream_id: 21, stream_icon: '', epg_channel_id: 'esporte.1', category_id: '2' },
+    { num: 5, name: 'Notícias 24h', stream_type: 'live', stream_id: 31, stream_icon: '', epg_channel_id: null, category_id: '3' },
+  ],
+  vod_categories: [
+    { category_id: '10', category_name: 'Filmes | Ação', parent_id: 0 },
+    { category_id: '11', category_name: 'Filmes | Drama', parent_id: 0 },
+  ],
+  vod: [
+    { num: 1, name: 'Corrida Final (2022)', stream_type: 'movie', stream_id: 501, stream_icon: '', container_extension: 'mp4', category_id: '10' },
+    { num: 2, name: 'Drama na Serra', stream_type: 'movie', stream_id: 502, stream_icon: '', container_extension: 'mkv', category_id: '11' },
+  ],
+  series_categories: [{ category_id: '20', category_name: 'Séries | Drama', parent_id: 0 }],
+  series: [{ num: 1, name: 'Vale Escuro', series_id: 77, cover: '', plot: 'Uma cidade e seus segredos.', genre: 'Drama', releaseDate: '2021-03-01', category_id: '20' }],
+  series_info: {
+    info: { name: 'Vale Escuro', plot: 'Uma cidade e seus segredos.', genre: 'Drama', category_id: '20' },
+    episodes: {
+      1: [
+        { id: '7001', episode_num: 1, title: 'Vale Escuro - S01E01 - Chegada', container_extension: 'mp4', season: 1, info: { duration_secs: 2400 } },
+        { id: '7002', episode_num: 2, title: 'Vale Escuro - S01E02 - Neblina', container_extension: 'mp4', season: 1, info: {} },
+      ],
+      2: [{ id: '7101', episode_num: 1, title: 'Vale Escuro - S02E01 - Retorno', container_extension: 'mkv', season: 2, info: {} }],
+    },
+  },
+};
+
+function xtream(query) {
+  if (query.get('username') !== 'joão' || query.get('password') !== 's&nha') return { user_info: { auth: 0 } };
+  const action = query.get('action') ?? '';
+  const cat = query.get('category_id');
+  const byCat = (list) => (cat ? list.filter((s) => s.category_id === cat) : list);
+  switch (action) {
+    case '':
+      return {
+        user_info: { username: 'joão', auth: 1, status: 'Active', exp_date: '1893499200', max_connections: '2' },
+        server_info: { url: '127.0.0.1', port: '4801', server_protocol: 'http' },
+      };
+    case 'get_live_categories':
+      return XT.live_categories;
+    case 'get_live_streams':
+      return byCat(XT.live);
+    case 'get_vod_categories':
+      return XT.vod_categories;
+    case 'get_vod_streams':
+      return byCat(XT.vod);
+    case 'get_series_categories':
+      return XT.series_categories;
+    case 'get_series':
+      return byCat(XT.series);
+    case 'get_series_info':
+      return query.get('series_id') === '77' ? XT.series_info : { info: [], episodes: [] };
+    case 'get_vod_info':
+      return { info: query.get('vod_id') === '501' ? { plot: 'Perseguição pela cidade.', genre: 'Ação' } : [] };
+    default:
+      return [];
+  }
+}
+
 createServer((req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
   const cors = { 'access-control-allow-origin': '*' };
@@ -41,6 +112,7 @@ createServer((req, res) => {
     if (path === '/player_api.php') {
       const query = new URL(req.url, 'http://x').searchParams;
       const json = (body) => res.writeHead(200, { ...cors, 'content-type': 'application/json' }).end(JSON.stringify(body));
+      if (query.get('username') === 'joão') return json(xtream(query));
       if (query.get('username') !== 'u' || query.get('password') !== 'p') return json({ user_info: { auth: 0 } });
       if (query.get('action') === 'get_vod_info' && query.get('vod_id') === '101') {
         return json({ info: { plot: 'Sinopse vinda do servidor da lista.', genre: 'Drama', cast: 'Ana Souza, Rui Lima', director: 'Lia Prado', rating: '7.8', releasedate: '2020-05-01' } });
@@ -50,6 +122,12 @@ createServer((req, res) => {
       return json({});
     }
     // Login Xtream Codes (host, usuário e senha): usuário "joão", senha "s&nha".
+    // Em /semapi o servidor não oferece player_api.php: o TuiTV volta a importar a lista M3U (get.php).
+    if (path === '/semapi/get.php') {
+      const query = new URL(req.url, 'http://x').searchParams;
+      if (query.get('username') !== 'joão' || query.get('password') !== 's&nha') return res.writeHead(401, cors).end();
+      return res.writeHead(200, cors).end(readFileSync(new URL('basic.m3u', fixtures), 'utf8').replace(/^#EXTM3U[^\n]*/, '#EXTM3U'));
+    }
     if (path === '/get.php' || path === '/xmltv.php') {
       const query = new URL(req.url, 'http://x').searchParams;
       if (query.get('username') !== 'joão' || query.get('password') !== 's&nha') return res.writeHead(401, cors).end();

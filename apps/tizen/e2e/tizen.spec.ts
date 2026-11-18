@@ -85,7 +85,8 @@ test('só com o controle: lista por login, canais, player, troca de canal e Volt
   await expect(dialog.getByLabel('Senha')).toBeFocused();
   await page.keyboard.type('s&nha');
   await page.keyboard.press('Enter');
-  await expect(page.getByText(/importada: 6 itens/)).toBeVisible();
+  // Login: conecta sem baixar a lista; os canais vêm do servidor por categoria.
+  await expect(page.getByText(/Conectado a “127.0.0.1”: 6 categorias/)).toBeVisible();
 
   // TV ao vivo: o canal escolhido toca no player; Canal +/− do controle troca de canal.
   await page.evaluate(() => (location.hash = '#/live'));
@@ -140,7 +141,8 @@ test('capturas de tela para conferência visual (build/screenshots)', async ({ p
   await page.getByLabel('Senha').focus();
   await shot('02-adicionar-por-login');
   await page.getByRole('button', { name: 'Importar', exact: true }).click();
-  await expect(page.getByText(/importada: 6 itens/)).toBeVisible();
+  // Login: conecta sem baixar a lista; os canais vêm do servidor por categoria.
+  await expect(page.getByText(/Conectado a “127.0.0.1”: 6 categorias/)).toBeVisible();
   await page.evaluate(() => (location.hash = '#/'));
   await page.keyboard.press('ArrowDown');
   await page.waitForTimeout(400);

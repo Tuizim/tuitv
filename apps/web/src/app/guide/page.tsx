@@ -10,9 +10,10 @@ import { maskUrl } from '@tuitv/validation';
 import { AddSourceDialog, ConfirmDialog } from '@/components/dialogs';
 import { Thumb } from '@/components/Thumb';
 import { Button, Dropdown, Empty, IconButton, Modal, Notice, PageHeader, cx } from '@/components/ui';
-import { itemHref, loadProgrammes, useNow } from '@/lib/hooks';
+import { RemoteStatus } from '@/components/Catalog';
+import { itemHref, loadProgrammes, useNow, useRemoteConnection, useRemoteGroup } from '@/lib/hooks';
 import { formatDate, formatHour, importErrorText, useT } from '@/lib/i18n';
-import { useStore } from '@/lib/store';
+import { hasRemote, useStore } from '@/lib/store';
 
 const HOUR = 3_600_000;
 const PX_PER_MIN = 4;
@@ -20,6 +21,8 @@ const HOURS = 24;
 const CHANNEL_WIDTH = 168;
 const ROW = 64;
 const ALL = '\u0000all';
+/** Login conectando: as categorias ainda não chegaram (nada é pedido até lá). */
+const PENDING = '\u0000pending';
 
 /** Guia de programação (PRD RF-009): XMLTV por endereço ou arquivo; horários no fuso do dispositivo. */
 export default function GuidePage() {
@@ -142,7 +145,12 @@ function Grid() {
   const epgIndex = useStore((s) => s.epgIndex);
   const language = useStore((s) => s.settings.language);
   const now = useNow();
-  const [group, setGroup] = useState(ALL);
+  const remote = useStore(hasRemote);
+  // Com login, a grade abre numa categoria: "Todas" pediria ao servidor a lista inteira de canais.
+  const [chosen, setGroup] = useState<string | null>(null);
+  const group = chosen ?? (remote ? (lib.liveGroups[0]?.name ?? PENDING) : ALL);
+  const load = useRemoteGroup('live', group === ALL ? null : group, group !== PENDING);
+  const connection = useRemoteConnection();
   const [detail, setDetail] = useState<{ programme: Programme; channel: MediaItem } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -182,7 +190,9 @@ function Grid() {
           options={[{ value: ALL, label: t('Todas as categorias') }, ...lib.liveGroups.map((g) => ({ value: g.name, label: g.name }))]}
         />
       </div>
-      {rows.length === 0 ? (
+      {rows.length === 0 && (group === PENDING || load.loading || load.error) ? (
+        <RemoteStatus load={group === PENDING ? connection : load} />
+      ) : rows.length === 0 ? (
         <Notice>{t('Nenhum canal das listas ativas corresponde aos canais deste guia. A associação usa o tvg-id e o nome do canal.')}</Notice>
       ) : (
         <div ref={scrollRef} className="h-[calc(100dvh-330px)] min-h-80 overflow-auto rounded-xl border border-line bg-surface" data-testid="epg-grid">
