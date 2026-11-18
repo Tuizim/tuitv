@@ -14,6 +14,9 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isFocused
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasAnySibling
+import androidx.compose.ui.test.hasRequestFocusAction
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -175,7 +178,11 @@ class UiTest {
         assertTrue(compose.onAllNodesWithText("S01E0", substring = true).fetchSemanticsNodes().isEmpty())
         assertEquals(1, compose.onAllNodesWithText(Txt.episodeLabel(1, 2), substring = true).fetchSemanticsNodes().size)
         shot("16-inicio-continuar")
-        // OK no cartão (primeiro da primeira fileira) abre a página da série, com o botão no episódio mais adiante.
+        // OK no cartão abre a página da série, com o botão no episódio mais adiante. O foco inicial vai para a
+        // primeira fileira já carregada (no CI, mais lento, pode ser outra): o foco é posto no cartão antes do OK.
+        val card = hasRequestFocusAction() and hasAnySibling(hasText(Txt.episodeLabel(1, 2), substring = true))
+        compose.onNode(card).performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.waitUntil(10_000) { compose.onAllNodes(card and isFocused()).fetchSemanticsNodes().isNotEmpty() }
         press(NativeKeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Continuar " + Txt.episodeLabel(1, 2))
     }
