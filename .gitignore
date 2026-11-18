@@ -17,3 +17,5 @@ keystore.properties
 *.keystore
 dist/
 *.p12
+.env*.local
+.wrangler/

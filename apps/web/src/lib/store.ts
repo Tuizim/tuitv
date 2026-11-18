@@ -196,6 +196,9 @@ function remoteView(playlists: Playlist[]): RemoteView {
 }
 
 /** Executa uma vez por chave enquanto estiver em andamento. */
+/** Logins: consultar por categoria (TV Samsung) ou o catálogo inteiro de cada tipo (Web). */
+const BY_CATEGORY = process.env.NEXT_PUBLIC_REMOTE_BY_CATEGORY === '1';
+
 function once(key: string, run: () => Promise<void>): Promise<void> {
   let job = inflight.get(key);
   if (!job) {
@@ -563,7 +566,10 @@ export const useStore = create<State & Actions>((set, get) => {
       await Promise.all(activeRemotes().map((p) => cacheOf(p)));
     },
 
-    async loadRemote(kind, group) {
+    async loadRemote(kind, requested) {
+      // Web: o catálogo de cada tipo vem numa consulta só (menos consultas, sem esbarrar no limite
+      // dos servidores). A TV Samsung pede por categoria, para não carregar catálogos grandes de uma vez.
+      const group = BY_CATEGORY ? requested : null;
       const jobs = activeRemotes().map(async (playlist) => {
         const cache = await cacheOf(playlist);
         const login = xtream.loginOf(playlist);
@@ -571,21 +577,26 @@ export const useStore = create<State & Actions>((set, get) => {
         const ids = group === null ? [undefined] : cache.categories[kind].filter((c) => c.name === group).map((c) => c.id);
         const pending = ids.filter((cid) => !cache.loaded.has(`${kind}|${cid ?? '*'}`));
         if (!pending.length) return false;
-        await Promise.all(
-          pending.map((cid) =>
-            once(`load|${playlist.id}|${kind}|${cid ?? '*'}`, async () => {
-              const names = cache.names[kind];
-              if (kind === 'series') {
-                for (const series of await xtream.seriesList(playlist.id, login, names, cid, timeout())) {
-                  if (!cache.full.has(series.id)) cache.series.set(series.id, series);
-                }
-              } else {
-                for (const item of await xtream.streams(playlist.id, login, kind, names, cid, timeout())) cache.items.set(item.id, item);
+        const load = (cid: string | undefined) =>
+          once(`load|${playlist.id}|${kind}|${cid ?? '*'}`, async () => {
+            const names = cache.names[kind];
+            if (kind === 'series') {
+              for (const series of await xtream.seriesList(playlist.id, login, names, cid, timeout())) {
+                if (!cache.full.has(series.id)) cache.series.set(series.id, series);
               }
-              cache.loaded.add(`${kind}|${cid ?? '*'}`);
-            }),
-          ),
-        );
+            } else {
+              for (const item of await xtream.streams(playlist.id, login, kind, names, cid, timeout())) cache.items.set(item.id, item);
+            }
+            cache.loaded.add(`${kind}|${cid ?? '*'}`);
+          });
+        try {
+          await Promise.all(pending.map(load));
+        } catch (error) {
+          // Servidores que limitam consultas recusam parte das categorias (o navegador vê a recusa
+          // como erro de rede/CORS). Uma única consulta com tudo, como a da busca, costuma passar.
+          if (group === null || !(error instanceof ImportError) || error.code !== 'network-or-cors' || cache.loaded.has(`${kind}|*`)) throw error;
+          await load(undefined);
+        }
         return true;
       });
       const results = await Promise.allSettled(jobs);

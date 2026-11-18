@@ -5,6 +5,7 @@ import { normalizeText, type SeriesGroup } from '@tuitv/business-rules';
 import type { MediaItem } from '@tuitv/shared-models';
 import { safeImageUrl } from '@tuitv/validation';
 import { kvGet, kvSet } from './db';
+import { corsFetch, hasCorsProxy } from './net';
 import { remoteSeriesInfo } from './xtream';
 
 /**
@@ -82,12 +83,12 @@ function toInfo(raw: Record<string, unknown>): ExtraInfo {
 
 async function api(provider: Provider, action: string, extra = ''): Promise<unknown> {
   // Página em https não pode consultar servidor http (conteúdo misto).
-  if (location.protocol === 'https:' && provider.base.startsWith('http:')) return null;
+  if (!hasCorsProxy && location.protocol === 'https:' && provider.base.startsWith('http:')) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12_000);
   try {
     const url = `${provider.base}/player_api.php?username=${encodeURIComponent(provider.user)}&password=${encodeURIComponent(provider.pass)}&action=${action}${extra}`;
-    const response = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: controller.signal });
+    const response = await corsFetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: controller.signal });
     if (!response.ok) return null;
     return await response.json();
   } catch {

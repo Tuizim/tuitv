@@ -229,21 +229,20 @@ test('login: categorias, séries e favoritos vêm do servidor sob demanda', asyn
   await addLogin(page, 's&nha');
   await expect(page.getByText(/Conectado a/)).toBeVisible();
 
-  // Ao vivo abre na primeira categoria e pede só ela.
+  // Ao vivo: todos os canais numa consulta só; trocar de categoria não consulta de novo.
   await page.goto('/live/');
   const list = page.getByTestId('channel-list');
   await expect(list.getByRole('button', { name: /Canal Um HD/ })).toBeVisible();
   await expect(list.getByRole('button', { name: /Esporte 1/ })).toHaveCount(0);
-  expect(calls).toContain('get_live_streams:1');
-  expect(calls).not.toContain('get_live_streams');
   await choose(page, 'Categoria', /Esportes/);
   await expect(list.getByRole('button', { name: /Esporte 1/ })).toBeVisible();
+  expect(calls.filter((c) => c.startsWith('get_live_streams'))).toEqual(['get_live_streams']);
 
-  // Filmes: uma fileira por categoria do servidor, cada uma pedida ao aparecer.
+  // Filmes: uma fileira por categoria, todas da mesma consulta (uma por tipo, não uma por fileira).
   await page.goto('/movies/');
   await expect(page.getByRole('link', { name: /Corrida Final \(2022\)/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /Drama na Serra/ })).toBeVisible();
-  expect(calls).toEqual(expect.arrayContaining(['get_vod_streams:10', 'get_vod_streams:11']));
+  expect(calls.filter((c) => c.startsWith('get_vod_streams'))).toEqual(['get_vod_streams']);
   await page.getByRole('link', { name: /Corrida Final/ }).click();
   await expect(page.getByText('Perseguição pela cidade.')).toBeVisible();
   await page.getByRole('button', { name: 'Adicionar aos favoritos' }).click();

@@ -77,6 +77,9 @@ Para publicar em subcaminho, defina `NEXT_PUBLIC_BASE_PATH=/caminho` no build.
 São restrições dos navegadores, tratadas com mensagens claras no aplicativo:
 
 - **CORS**: listas, guias e transmissões só funcionam se o servidor de origem permitir acesso pelo navegador. Para listas e guias, a alternativa é baixar o arquivo e importá-lo.
+  Com um proxy de CORS ([apps/web/cors-proxy/worker.js](apps/web/cors-proxy/worker.js)) definido em `NEXT_PUBLIC_CORS_PROXY` no build, listas, guias e a API Xtream bloqueadas pelo navegador são buscadas por ele (o app tenta direto primeiro). O vídeo continua indo direto ao servidor.
+  - Local: `npx wrangler dev cors-proxy/worker.js` em `apps/web` e `NEXT_PUBLIC_CORS_PROXY=http://localhost:8787` em `apps/web/.env.local`.
+  - Publicado: `npx wrangler deploy cors-proxy/worker.js --name tuitv-cors`, com `ALLOWED_ORIGINS` limitado ao endereço do site.
 - **Conteúdo misto**: com o TuiTV em `https://`, endereços `http://` são bloqueados.
 - **Formatos**: tocam HLS (`.m3u8`, via HLS.js), MPEG-TS (via mpegts.js) e os formatos nativos do navegador (MP4, WebM…). Quando o endereço não revela o formato, o player o detecta pelos primeiros bytes. RTMP, RTSP e UDP não tocam em navegadores.
 

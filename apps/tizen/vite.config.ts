@@ -60,6 +60,10 @@ export default defineConfig(({ command }) => ({
   },
   define: {
     'process.env.NEXT_PUBLIC_BASE_PATH': JSON.stringify(''),
+    // A TV não tem CORS (config.xml libera as origens): o proxy da versão Web não é usado.
+    'process.env.NEXT_PUBLIC_CORS_PROXY': JSON.stringify(''),
+    // Logins consultados por categoria: catálogos inteiros pesam demais na memória das TVs.
+    'process.env.NEXT_PUBLIC_REMOTE_BY_CATEGORY': JSON.stringify('1'),
     // Tudo fica num único script: o auxiliar de pré-carregamento do Vite não precisa de import.meta.
     ...(command === 'build' ? { 'import.meta.url': JSON.stringify(''), 'import.meta.resolve': 'undefined' } : {}),
   },

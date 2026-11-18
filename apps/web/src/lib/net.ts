@@ -44,6 +44,26 @@ export function checkedUrl(input: string, allowPrivate: boolean): string {
   return check.url!;
 }
 
+/** Proxy de CORS opcional (ver cors-proxy/worker.js), definido no build por NEXT_PUBLIC_CORS_PROXY. */
+const CORS_PROXY = (process.env.NEXT_PUBLIC_CORS_PROXY ?? '').replace(/\/+$/, '');
+export const hasCorsProxy = CORS_PROXY !== '';
+
+/**
+ * fetch que contorna o CORS: tenta direto e, se o navegador bloquear (ou for http numa página https),
+ * repete pelo proxy de CORS, quando há um configurado. Sem proxy, é um fetch comum.
+ */
+export async function corsFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  if (!hasCorsProxy) return fetch(url, init);
+  const proxied = () => fetch(`${CORS_PROXY}/?url=${encodeURIComponent(url)}`, init);
+  if (typeof location !== 'undefined' && location.protocol === 'https:' && url.startsWith('http:')) return proxied();
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
+    return proxied();
+  }
+}
+
 export interface ByteSource {
   stream: ReadableStream<Uint8Array>;
   /** Tamanho total em bytes, quando conhecido. */
@@ -51,7 +71,7 @@ export interface ByteSource {
 }
 
 /**
- * Baixa um endereço remoto diretamente do navegador (sem servidor intermediário).
+ * Baixa um endereço remoto direto do navegador (pelo proxy de CORS só se o acesso direto for bloqueado).
  * Nunca envia cookies nem o endereço do aplicativo; o endereço completo não é registrado em logs.
  */
 export async function fetchSource(url: string, timeoutSeconds: number, maxBytes: number, signal?: AbortSignal): Promise<ByteSource> {
@@ -66,7 +86,7 @@ export async function fetchSource(url: string, timeoutSeconds: number, maxBytes:
   }, timeoutSeconds * 1000);
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await corsFetch(url, {
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
       cache: 'no-store',
@@ -76,7 +96,7 @@ export async function fetchSource(url: string, timeoutSeconds: number, maxBytes:
   } catch {
     if (timedOut) throw new ImportError('timeout');
     if (signal?.aborted) throw new ImportError('cancelled');
-    if (typeof location !== 'undefined' && location.protocol === 'https:' && url.startsWith('http:')) {
+    if (!hasCorsProxy && typeof location !== 'undefined' && location.protocol === 'https:' && url.startsWith('http:')) {
       throw new ImportError('mixed-content');
     }
     // O navegador não distingue falha de rede de bloqueio por CORS. Sem detalhes do endereço no console.

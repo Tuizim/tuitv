@@ -15,7 +15,7 @@
 import { extractYear, groupSeries, itemId, seriesId as makeSeriesId, type SeriesGroup } from '@tuitv/business-rules';
 import type { MediaItem, Playlist, PlaylistAccount, PlaylistCounts } from '@tuitv/shared-models';
 import { cleanName, maskUrl, parseXtreamUrl, safeImageUrl, type XtreamLogin } from '@tuitv/validation';
-import { ImportError } from './net';
+import { corsFetch, hasCorsProxy, ImportError } from './net';
 
 export type RemoteKind = 'live' | 'movie' | 'series';
 export const REMOTE_KINDS: RemoteKind[] = ['live', 'movie', 'series'];
@@ -48,8 +48,45 @@ const str = (value: unknown): string | undefined => {
   return clean || undefined;
 };
 
-/** Consulta o player_api.php. Credenciais nunca aparecem em logs. */
+/**
+ * Servidores Xtream costumam derrubar conexões quando recebem muitas consultas ao mesmo tempo
+ * (cada fileira de categoria na tela faz a sua). Por isso há um limite de consultas simultâneas
+ * por servidor, e uma falha de rede é repetida algumas vezes antes de virar erro na tela.
+ */
+const MAX_PARALLEL = 2;
+const RETRY_DELAYS = [1500, 4000];
+const lanes = new Map<string, { active: number; queue: (() => void)[] }>();
+
+async function inLane<T>(host: string, task: () => Promise<T>): Promise<T> {
+  let lane = lanes.get(host);
+  if (!lane) lanes.set(host, (lane = { active: 0, queue: [] }));
+  if (lane.active >= MAX_PARALLEL) await new Promise<void>((resolve) => lane.queue.push(resolve));
+  lane.active++;
+  try {
+    return await task();
+  } finally {
+    lane.active--;
+    lane.queue.shift()?.();
+  }
+}
+
+const isNetworkFailure = (error: unknown) => error instanceof ImportError && error.code === 'network-or-cors';
+
+/** Consulta o player_api.php, respeitando o limite por servidor e repetindo falhas de rede. */
 async function call(login: XtreamLogin, params: Record<string, string>, timeoutSeconds: number): Promise<unknown> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await inLane(login.host, () => callOnce(login, params, timeoutSeconds));
+    } catch (error) {
+      const delay = RETRY_DELAYS[attempt];
+      if (delay === undefined || !isNetworkFailure(error) || (typeof navigator !== 'undefined' && navigator.onLine === false)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+/** Uma consulta ao player_api.php. Credenciais nunca aparecem em logs. */
+async function callOnce(login: XtreamLogin, params: Record<string, string>, timeoutSeconds: number): Promise<unknown> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new ImportError('offline');
   const query = new URLSearchParams({ username: login.username, password: login.password, ...params });
   const url = `${login.host}/player_api.php?${query.toString()}`;
@@ -62,11 +99,11 @@ async function call(login: XtreamLogin, params: Record<string, string>, timeoutS
   let response: Response;
   let body: string;
   try {
-    response = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', signal: controller.signal });
+    response = await corsFetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', signal: controller.signal });
     body = await response.text();
   } catch {
     if (timedOut) throw new ImportError('timeout');
-    if (typeof location !== 'undefined' && location.protocol === 'https:' && url.startsWith('http:')) throw new ImportError('mixed-content');
+    if (!hasCorsProxy && typeof location !== 'undefined' && location.protocol === 'https:' && url.startsWith('http:')) throw new ImportError('mixed-content');
     console.warn('[TuiTV] falha ao consultar', maskUrl(url));
     throw new ImportError('network-or-cors');
   } finally {
