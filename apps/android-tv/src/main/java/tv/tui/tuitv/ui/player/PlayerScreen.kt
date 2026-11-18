@@ -7,6 +7,27 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.tv.material3.Border
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Icon
+import tv.tui.tuitv.ui.TuiIcons
+import tv.tui.tuitv.ui.components.ButtonHeight
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -325,12 +346,18 @@ fun PlayerScreen(route: Route.Player) {
     var overlayUntil by remember { mutableLongStateOf(System.currentTimeMillis() + OVERLAY_MS) }
     var options by remember { mutableStateOf(false) }
     var digits by remember { mutableStateOf("") }
+    // Busca "arrastada" (◀▶): a posição alvo acumula enquanto o usuário aperta e só é aplicada
+    // quando ele para — o vídeo não engasga a cada toque, como no player da Netflix.
+    var scrubTo by remember { mutableStateOf<Long?>(null) }
+    var scrubSteps by remember { mutableIntStateOf(0) }
+    var flash by remember { mutableStateOf<Flash?>(null) }
+    var rootFocused by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         while (true) {
             now = System.currentTimeMillis()
             position = player.currentPosition.coerceAtLeast(0)
             duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0
-            delay(500)
+            delay(250)
         }
     }
     LaunchedEffect(digits) {
@@ -340,7 +367,21 @@ fun PlayerScreen(route: Route.Player) {
         if (n != null && n in 1..queue.size) index = n - 1
         digits = ""
     }
-    val overlay = now < overlayUntil || controller.phase is Phase.Paused || controller.phase is Phase.Error
+    LaunchedEffect(scrubTo) {
+        val target = scrubTo ?: return@LaunchedEffect
+        delay(SCRUB_COMMIT_MS)
+        player.seekTo(target)
+        position = target
+        scrubTo = null
+        scrubSteps = 0
+    }
+    LaunchedEffect(flash) {
+        if (flash == null) return@LaunchedEffect
+        delay(650)
+        flash = null
+    }
+    val scrubbing = scrubTo != null
+    val overlay = now < overlayUntil || scrubbing || controller.phase is Phase.Paused || controller.phase is Phase.Error
     fun showOverlay() {
         overlayUntil = System.currentTimeMillis() + OVERLAY_MS
         now = System.currentTimeMillis()
@@ -351,42 +392,103 @@ fun PlayerScreen(route: Route.Player) {
         index = (index + step).mod(queue.size)
         showOverlay()
     }
+    /** Próximo episódio da fila (séries), oferecido no player como na Netflix. */
+    val next = queue.getOrNull(index + 1)?.takeIf { !live && item.series != null && it.series != null }
+    fun playNext() {
+        record()
+        index++
+        showOverlay()
+    }
+    fun scrub(direction: Int) {
+        if (live || !player.isCurrentMediaItemSeekable || duration <= 0) return
+        // Quanto mais toques seguidos, maior o salto: 10 s, depois 30 s, depois 1 min.
+        val step = when {
+            scrubSteps < 3 -> 10_000L
+            scrubSteps < 8 -> 30_000L
+            else -> 60_000L
+        }
+        scrubSteps++
+        scrubTo = ((scrubTo ?: position) + direction * step).coerceIn(0, duration)
+        flash = if (direction > 0) Flash.Forward else Flash.Back
+        showOverlay()
+    }
+    fun commitScrub() {
+        val target = scrubTo ?: return
+        player.seekTo(target)
+        position = target
+        scrubTo = null
+        scrubSteps = 0
+    }
+    fun togglePause() {
+        controller.togglePause()
+        flash = if (player.playWhenReady) Flash.Play else Flash.Pause
+        showOverlay()
+    }
 
     val focus = remember { FocusRequester() }
-    BackHandler { navigator.back() }
+    val controlsFocus = remember { FocusRequester() }
+    BackHandler {
+        // Voltar primeiro esconde os controles (ou desfaz a busca); só então sai do player.
+        when {
+            scrubbing -> { scrubTo = null; scrubSteps = 0 }
+            !rootFocused -> { focus.requestFocus(); overlayUntil = 0 }
+            else -> navigator.back()
+        }
+    }
+    // Controles escondidos não podem ficar com o foco.
+    LaunchedEffect(overlay) { if (!overlay && !rootFocused) focus.requestFocus() }
 
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .onFocusChanged { rootFocused = it.isFocused }
             .focusRequester(focus)
             .focusable()
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 val code = event.key.nativeKeyCode
                 val error = controller.phase is Phase.Error
+                showOverlay()
+                // Foco nos botões de baixo: ◀▶ e OK pertencem a eles; ▲ volta à barra de progresso.
+                if (!rootFocused && !error) {
+                    when (code) {
+                        AndroidKeyEvent.KEYCODE_DPAD_UP -> { focus.requestFocus(); return@onKeyEvent true }
+                        AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { togglePause(); return@onKeyEvent true }
+                        else -> return@onKeyEvent false
+                    }
+                }
                 when (code) {
                     AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_CHANNEL_UP ->
-                        if (live) change(+1) else showOverlay()
-                    AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN ->
-                        if (live) change(-1) else showOverlay()
-                    AndroidKeyEvent.KEYCODE_MEDIA_NEXT -> change(+1)
+                        if (live) change(+1) else Unit
+                    AndroidKeyEvent.KEYCODE_DPAD_DOWN ->
+                        when {
+                            live -> change(-1)
+                            error -> return@onKeyEvent false
+                            else -> runCatching { controlsFocus.requestFocus() }
+                        }
+                    AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> if (live) change(-1)
+                    AndroidKeyEvent.KEYCODE_MEDIA_NEXT -> if (next != null) playNext() else change(+1)
                     AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS -> change(-1)
-                    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> if (error) return@onKeyEvent false else { controller.seekBy(-10_000); showOverlay() }
-                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> if (error) return@onKeyEvent false else { controller.seekBy(10_000); showOverlay() }
-                    AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> { controller.seekBy(-30_000); showOverlay() }
-                    AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { controller.seekBy(30_000); showOverlay() }
+                    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> if (error) return@onKeyEvent false else scrub(-1)
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> if (error) return@onKeyEvent false else scrub(+1)
+                    AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> { scrubSteps = maxOf(scrubSteps, 3); scrub(-1) }
+                    AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { scrubSteps = maxOf(scrubSteps, 3); scrub(+1) }
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ->
-                        if (error) return@onKeyEvent false else if (live) showOverlay() else { controller.togglePause(); showOverlay() }
-                    AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_SPACE -> { controller.togglePause(); showOverlay() }
-                    AndroidKeyEvent.KEYCODE_MEDIA_PLAY -> { player.playWhenReady = true; showOverlay() }
-                    AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> { player.playWhenReady = false; showOverlay() }
+                        when {
+                            error -> return@onKeyEvent false
+                            scrubbing -> commitScrub()
+                            live -> Unit
+                            else -> togglePause()
+                        }
+                    AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_SPACE -> togglePause()
+                    AndroidKeyEvent.KEYCODE_MEDIA_PLAY -> player.playWhenReady = true
+                    AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> player.playWhenReady = false
                     AndroidKeyEvent.KEYCODE_MENU, AndroidKeyEvent.KEYCODE_INFO, AndroidKeyEvent.KEYCODE_SETTINGS -> options = true
                     else -> {
                         val digit = digitOf(code) ?: return@onKeyEvent false
                         if (!live) return@onKeyEvent false
                         if (digits.length < 5) digits += digit
-                        showOverlay()
                     }
                 }
                 true
@@ -412,8 +514,37 @@ fun PlayerScreen(route: Route.Player) {
             Text(digits, style = MaterialTheme.typography.displayMedium, color = TuiColors.White, modifier = Modifier.align(Alignment.TopStart).padding(40.dp))
         }
 
-        AnimatedVisibility(overlay && controller.phase !is Phase.Error, Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
-            Overlay(item, index, queue.size, live, controller.phase, position, duration, now)
+        val showControls = overlay && controller.phase !is Phase.Error
+        AnimatedVisibility(showControls, Modifier.align(Alignment.TopCenter), enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
+            TopBar(item, index, queue.size, live)
+        }
+        AnimatedVisibility(showControls, Modifier.align(Alignment.BottomCenter), enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
+            if (live) {
+                LiveBar(item, now)
+            } else {
+                VodBar(
+                    phase = controller.phase,
+                    position = scrubTo ?: position,
+                    duration = duration,
+                    scrubbing = scrubbing,
+                    barFocused = rootFocused,
+                    next = next,
+                    controlsFocus = controlsFocus,
+                    onPlayPause = ::togglePause,
+                    onBack10 = { scrubSteps = 0; scrub(-1) },
+                    onForward10 = { scrubSteps = 0; scrub(+1) },
+                    onOptions = { options = true },
+                    onNext = ::playNext,
+                )
+            }
+        }
+        // Retorno visual imediato de cada comando (play, pausa, ±10 s) no centro da tela.
+        AnimatedVisibility(flash != null, Modifier.align(Alignment.Center), enter = fadeIn(tween(80)) + scaleIn(initialScale = 0.8f), exit = fadeOut(tween(250)) + scaleOut(targetScale = 1.2f)) {
+            FlashIcon(flash)
+        }
+        // Fim próximo: oferta do próximo episódio, como na Netflix.
+        if (next != null && duration > 0 && duration - position in 1..NEXT_OFFER_MS && !showControls) {
+            NextEpisodeCard(next, Modifier.align(Alignment.BottomEnd).padding(48.dp))
         }
 
         (controller.phase as? Phase.Error)?.let { ErrorPanel(it.message, item, live, { controller.reload() }, { navigator.back() }, Modifier.align(Alignment.Center)) }
@@ -421,6 +552,25 @@ fun PlayerScreen(route: Route.Player) {
     RequestFocus(focus, options)
 
     if (options) OptionsDialog(controller.player, item) { options = false }
+}
+
+private const val SCRUB_COMMIT_MS = 700L
+private const val NEXT_OFFER_MS = 40_000L
+
+private enum class Flash { Play, Pause, Back, Forward }
+
+@Composable
+private fun FlashIcon(flash: Flash?) {
+    val icon = when (flash) {
+        Flash.Play -> Icons.Filled.PlayArrow
+        Flash.Pause -> TuiIcons.Pause
+        Flash.Back -> TuiIcons.Replay10
+        Flash.Forward -> TuiIcons.Forward10
+        null -> return
+    }
+    Box(Modifier.size(112.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = null, tint = TuiColors.White, modifier = Modifier.size(64.dp))
+    }
 }
 
 @Composable
@@ -435,51 +585,169 @@ private fun StatusBadge(phase: Phase, modifier: Modifier) {
         text,
         style = MaterialTheme.typography.bodyLarge,
         color = TuiColors.White,
-        modifier = modifier.clip(RoundedCornerShape(20.dp)).background(TuiColors.Navy.copy(alpha = 0.85f)).padding(horizontal = 18.dp, vertical = 8.dp),
+        modifier = modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 18.dp, vertical = 8.dp),
     )
 }
 
+/** Faixa superior: o que está passando. */
 @Composable
-private fun Overlay(item: MediaItem, index: Int, total: Int, live: Boolean, phase: Phase, position: Long, duration: Long, now: Long) {
-    val library = library()
-    val epg by produceState<NowNext<Programme>?>(null, item.id, now / 60_000) { value = library.nowNext(item) }
-    Box(
+private fun TopBar(item: MediaItem, index: Int, total: Int, live: Boolean) {
+    Row(
         Modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, TuiColors.NavyDeep.copy(alpha = 0.95f))))
-            .padding(start = 48.dp, end = 48.dp, top = 64.dp, bottom = 32.dp),
+            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)))
+            .padding(start = 56.dp, end = 56.dp, top = 36.dp, bottom = 56.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RemoteImage(item.logo, item.name, Modifier.size(width = 120.dp, height = 72.dp))
-            Spacer(Modifier.width(24.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                val title = buildString {
-                    if (live && total > 1) append("${index + 1}  ")
-                    append(item.name)
-                }
-                Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
-                if (live) {
-                    val current = epg?.current
-                    if (current != null) {
-                        Text("${Txt.time(current.start)} – ${Txt.time(current.stop)}   ${current.title}", style = MaterialTheme.typography.bodyLarge, maxLines = 1)
-                        ProgressLine(programmeProgress(current.start, current.stop, now), Modifier.width(520.dp))
-                        epg?.next?.firstOrNull()?.let { Muted("A seguir: ${Txt.time(it.start)}  ${it.title}", maxLines = 1) }
-                    } else {
-                        Muted(item.group ?: Txt.LIVE)
-                    }
-                    Muted("▲▼ trocar canal · números: ir ao canal · ☰ opções · Voltar sai", maxLines = 1)
-                } else {
-                    item.series?.let { Muted(Txt.episodeLabel(it.season, it.episode) + " · " + it.title) }
-                    if (duration > 0) {
-                        ProgressLine(position.toFloat() / duration, Modifier.fillMaxWidth())
-                        Text("${Txt.clock(position / 1000)} / ${Txt.clock(duration / 1000)}" + if (phase == Phase.Paused) "   ❚❚ Pausado" else "", style = MaterialTheme.typography.bodyMedium)
-                    } else if (phase == Phase.Paused) {
-                        Text("❚❚ Pausado", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    Muted("OK pausa · ◀▶ 10 s · ⏪⏩ 30 s · ☰ opções · Voltar sai", maxLines = 1)
-                }
+        if (live) {
+            RemoteImage(item.logo, item.name, Modifier.size(width = 96.dp, height = 56.dp))
+            Spacer(Modifier.width(20.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                (if (live && total > 1) "${index + 1}  " else "") + (item.series?.title?.takeIf { it.isNotBlank() } ?: item.name),
+                style = MaterialTheme.typography.headlineSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            item.series?.let {
+                Text(Txt.episodeLabel(it.season, it.episode) + "  " + item.name, style = MaterialTheme.typography.titleMedium, color = TuiColors.White.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+    }
+}
+
+private val BottomGradient = Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)))
+
+@Composable
+private fun LiveBar(item: MediaItem, now: Long) {
+    val library = library()
+    val epg by produceState<NowNext<Programme>?>(null, item.id, now / 60_000) { value = library.nowNext(item) }
+    Column(
+        Modifier.fillMaxWidth().background(BottomGradient).padding(start = 56.dp, end = 56.dp, top = 72.dp, bottom = 40.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val current = epg?.current
+        if (current != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("AO VIVO", style = MaterialTheme.typography.labelLarge, color = TuiColors.White, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(TuiColors.Danger).padding(horizontal = 8.dp, vertical = 2.dp))
+                Spacer(Modifier.width(14.dp))
+                Text("${Txt.time(current.start)} – ${Txt.time(current.stop)}   ${current.title}", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            ProgressLine(programmeProgress(current.start, current.stop, now), Modifier.fillMaxWidth(), height = 5.dp, color = TuiColors.Danger, track = TuiColors.White.copy(alpha = 0.25f))
+            epg?.next?.firstOrNull()?.let { Muted("A seguir: ${Txt.time(it.start)}  ${it.title}", maxLines = 1) }
+        } else {
+            Muted(item.group ?: Txt.LIVE)
+        }
+        Muted("▲▼ trocar canal · números: ir ao canal · ☰ opções · Voltar sai", maxLines = 1)
+    }
+}
+
+/** Controles de filmes e episódios: barra de progresso com o tempo restante e botões embaixo. */
+@Composable
+private fun VodBar(
+    phase: Phase,
+    position: Long,
+    duration: Long,
+    scrubbing: Boolean,
+    barFocused: Boolean,
+    next: MediaItem?,
+    controlsFocus: FocusRequester,
+    onPlayPause: () -> Unit,
+    onBack10: () -> Unit,
+    onForward10: () -> Unit,
+    onOptions: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().background(BottomGradient).padding(start = 56.dp, end = 56.dp, top = 96.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        if (duration > 0) {
+            SeekBar(position, duration, scrubbing, barFocused)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            val paused = phase == Phase.Paused
+            PlayerButton(if (paused) Icons.Filled.PlayArrow else TuiIcons.Pause, if (paused) "Assistir" else "Pausar", onPlayPause, Modifier.focusRequester(controlsFocus))
+            PlayerButton(TuiIcons.Replay10, "Voltar 10 s", onBack10)
+            PlayerButton(TuiIcons.Forward10, "Avançar 10 s", onForward10)
+            PlayerButton(TuiIcons.Subtitles, "Áudio e legendas", onOptions, label = true)
+            if (next != null) PlayerButton(TuiIcons.SkipNext, "Próximo episódio", onNext, label = true)
+            Spacer(Modifier.weight(1f))
+            Muted(if (barFocused) "◀▶ avançar/voltar · OK pausa · ▼ botões" else "▲ barra de progresso", maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun SeekBar(position: Long, duration: Long, scrubbing: Boolean, focused: Boolean) {
+    val fraction = (position.toFloat() / duration).coerceIn(0f, 1f)
+    val height by animateDpAsState(if (focused) 6.dp else 4.dp, tween(150), label = "bar")
+    val thumb by animateDpAsState(if (focused) 20.dp else 0.dp, tween(150), label = "thumb")
+    Column {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(28.dp)) {
+            val x = maxWidth * fraction
+            // Tempo alvo acima do marcador enquanto o usuário avança/volta.
+            if (scrubbing) {
+                Text(
+                    Txt.clock(position / 1000),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.offset(x = (x - 36.dp).coerceIn(0.dp, maxWidth - 72.dp)).width(72.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BoxWithConstraints(Modifier.weight(1f).height(24.dp), contentAlignment = Alignment.CenterStart) {
+                Box(Modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height)).background(TuiColors.White.copy(alpha = 0.3f)))
+                Box(Modifier.fillMaxWidth(fraction).height(height).clip(RoundedCornerShape(height)).background(TuiColors.Danger))
+                if (thumb > 0.dp) {
+                    Box(Modifier.offset(x = (maxWidth * fraction - thumb / 2).coerceAtLeast(0.dp)).size(thumb).clip(CircleShape).background(TuiColors.Danger))
+                }
+            }
+            Spacer(Modifier.width(20.dp))
+            // Como na Netflix: o tempo que falta, não o total.
+            Text("-" + Txt.clock(((duration - position).coerceAtLeast(0)) / 1000), style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+/** Botão redondo do player (só ícone) ou em pílula com rótulo; branco no foco, sem borda. */
+@Composable
+private fun PlayerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit, modifier: Modifier = Modifier, label: Boolean = false) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(ButtonHeight).let { if (label) it else it.width(ButtonHeight) },
+        shape = ButtonDefaults.shape(CircleShape),
+        colors = ButtonDefaults.colors(
+            containerColor = TuiColors.White.copy(alpha = 0.14f),
+            contentColor = TuiColors.White,
+            focusedContainerColor = TuiColors.White,
+            focusedContentColor = Color.Black,
+        ),
+        border = ButtonDefaults.border(focusedBorder = Border.None),
+        scale = ButtonDefaults.scale(focusedScale = 1.1f),
+        contentPadding = if (label) PaddingValues(start = 16.dp, end = 20.dp) else PaddingValues(0.dp),
+    ) {
+        Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            Icon(icon, contentDescription = description, modifier = Modifier.size(26.dp))
+            if (label) {
+                Spacer(Modifier.width(8.dp))
+                Text(description, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextEpisodeCard(next: MediaItem, modifier: Modifier) {
+    Column(
+        modifier.width(360.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.75f)).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Muted("A seguir")
+        next.series?.let { Text(Txt.episodeLabel(it.season, it.episode) + "  " + next.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        Muted("Aperte ▶▶| ou ▼ e escolha “Próximo episódio”.", maxLines = 2)
     }
 }
 

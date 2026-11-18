@@ -13,6 +13,8 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.isFocused
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
@@ -25,6 +27,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -149,7 +154,8 @@ class UiTest {
     fun listasConfiguracoesBuscaEGuia() {
         seed()
         show(Route.Playlists)
-        waitFor("Filmes e séries")
+        // Os botões padronizados (48 dp) deixam só a primeira lista visível na tela.
+        waitFor("Referência")
         shot("07-listas")
         show(Route.Settings)
         waitFor("Reprodução automática")
@@ -160,5 +166,76 @@ class UiTest {
         show(Route.Guide)
         waitFor("Canal Um HD")
         shot("10-guia")
+    }
+
+    /** Texto do elemento que está com o foco do controle. */
+    private fun focused(): String {
+        compose.waitForIdle()
+        val node = compose.onNode(isFocused()).fetchSemanticsNode()
+        return node.config.getOrElse(SemanticsProperties.Text) { emptyList() }.joinToString(" ") { it.text }
+    }
+
+    @Test
+    fun categoriasNaoRoubamOFoco() {
+        seed()
+        show(Route.Live)
+        waitFor("Canal Um HD")
+        assertTrue(focused(), focused().contains("Canal"))
+        // ◀ leva às categorias, na categoria em uso.
+        press(NativeKeyEvent.KEYCODE_DPAD_LEFT)
+        assertTrue(focused(), focused().startsWith(Txt.ALL))
+        // ▼ percorre as categorias; a lista troca após a pausa, mas o foco continua na coluna.
+        press(NativeKeyEvent.KEYCODE_DPAD_DOWN)
+        val category = focused()
+        compose.mainClock.advanceTimeBy(1500)
+        assertEquals(category, focused())
+        press(NativeKeyEvent.KEYCODE_DPAD_DOWN)
+        val second = focused()
+        compose.mainClock.advanceTimeBy(1500)
+        assertEquals(second, focused())
+        // OK confirma a categoria e leva o foco ao primeiro canal dela.
+        press(NativeKeyEvent.KEYCODE_DPAD_CENTER)
+        compose.mainClock.advanceTimeBy(800)
+        assertTrue(focused(), !focused().startsWith(second.substringBefore(' ')))
+        // ◀ volta exatamente à categoria escolhida.
+        press(NativeKeyEvent.KEYCODE_DPAD_LEFT)
+        assertEquals(second, focused())
+        shot("12-ao-vivo-categoria")
+    }
+
+    @Test
+    fun fileirasLembramOCartao() {
+        seed()
+        show()
+        waitFor("Canais ao vivo")
+        waitFor(Txt.MOVIES)
+        val first = focused()
+        press(NativeKeyEvent.KEYCODE_DPAD_RIGHT)
+        press(NativeKeyEvent.KEYCODE_DPAD_RIGHT)
+        val third = focused()
+        assertNotEquals(first, third)
+        shot("13-inicio-foco")
+        // ▼ e ▲: volta ao mesmo cartão da fileira, não ao "mais próximo" na tela.
+        press(NativeKeyEvent.KEYCODE_DPAD_DOWN)
+        val below = focused()
+        assertNotEquals(third, below)
+        press(NativeKeyEvent.KEYCODE_DPAD_UP)
+        assertEquals(third, focused())
+    }
+
+    @Test
+    fun detalheDoFilmeEPlayer() {
+        seed()
+        val movie = runBlocking { app.library.items(tv.tui.core.ContentKind.MOVIE, GroupFilter.All).first().first() }
+        show(Route.MovieDetail(movie.id))
+        waitFor("Assistir")
+        assertTrue(focused(), focused().contains("Assistir"))
+        shot("14-detalhe-filme")
+        press(NativeKeyEvent.KEYCODE_DPAD_RIGHT)
+        assertTrue(focused(), focused().contains("Favoritar"))
+        press(NativeKeyEvent.KEYCODE_DPAD_LEFT)
+        press(NativeKeyEvent.KEYCODE_DPAD_CENTER)
+        // Player próprio: controles com botões e tempo restante.
+        waitFor("Áudio e legendas")
     }
 }

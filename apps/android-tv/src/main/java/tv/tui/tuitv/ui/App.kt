@@ -31,6 +31,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.DrawerValue
@@ -42,6 +47,7 @@ import androidx.tv.material3.Text
 import androidx.tv.material3.rememberDrawerState
 import kotlinx.coroutines.delay
 import tv.tui.core.ContentKind
+import tv.tui.tuitv.ui.components.ColumnPivot
 import tv.tui.tuitv.ui.components.ProgressLine
 import tv.tui.tuitv.ui.player.PlayerScreen
 import tv.tui.tuitv.ui.screens.CatalogScreen
@@ -113,20 +119,30 @@ fun Brand(big: Boolean = false) {
 private fun MainShell(navigator: Navigator) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val holder = rememberSaveableStateHolder()
+    // Ao entrar no menu, o foco vai sempre para a seção atual (e não para o item mais próximo).
+    val sectionFocus = remember { FocusRequester() }
     ModalNavigationDrawer(
         drawerState = drawerState,
         scrimBrush = androidx.compose.ui.graphics.SolidColor(TuiColors.NavyDeep.copy(alpha = 0.7f)),
         drawerContent = { value ->
             // Rolável: com 10 destinos o menu não cabe inteiro em todas as resoluções (o foco rola até o item).
             Column(
-                Modifier.fillMaxHeight().background(TuiColors.NavyDeep).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 12.dp),
+                Modifier
+                    .fillMaxHeight()
+                    .background(TuiColors.NavyDeep)
+                    .focusProperties { onEnter = { sectionFocus.requestFocus() } }
+                    .focusGroup()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
             ) {
                 Box(Modifier.padding(start = 8.dp, top = 4.dp, bottom = 8.dp)) {
                     if (value == DrawerValue.Open) Brand() else Icon(TuiIcons.Logo, null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(36.dp))
                 }
                 for (destination in destinations) {
+                    val selected = navigator.section == destination.route
                     NavigationDrawerItem(
-                        selected = navigator.section == destination.route,
+                        modifier = if (selected) Modifier.focusRequester(sectionFocus) else Modifier,
+                        selected = selected,
                         onClick = { navigator.open(destination.route) },
                         leadingContent = { Icon(destination.icon, contentDescription = destination.label) },
                     ) {
@@ -136,10 +152,12 @@ private fun MainShell(navigator: Navigator) {
             }
         },
     ) {
-        Box(Modifier.fillMaxSize().padding(start = 88.dp, top = 28.dp, end = 40.dp)) {
+        // Ao sair do menu (▶), o foco volta exatamente ao elemento em que estava na tela.
+        Box(Modifier.fillMaxSize().padding(start = 88.dp, top = 28.dp, end = 40.dp).focusRestorer()) {
             val route = navigator.current
             holder.SaveableStateProvider(route.toString()) {
-                Screen(route)
+                // Rolagem pelo controle em todas as telas: o item em foco para a 1/3 da altura.
+                ColumnPivot { Screen(route) }
             }
         }
     }

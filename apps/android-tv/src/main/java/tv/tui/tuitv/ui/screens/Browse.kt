@@ -1,6 +1,24 @@
 package tv.tui.tuitv.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import coil3.compose.AsyncImage
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import tv.tui.tuitv.ui.components.ColumnPivot
+import tv.tui.tuitv.ui.components.FocusMemory
+import tv.tui.tuitv.ui.components.ProgressLine
+import tv.tui.tuitv.ui.components.RowPivot
+import tv.tui.tuitv.ui.components.RowsFocusMemory
+import tv.tui.tuitv.ui.components.rememberRowsFocusMemory
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -110,16 +128,47 @@ fun rememberHistoryPlayer(): (HistoryEntry) -> Unit {
     }
 }
 
-/** Fileira horizontal com título; o primeiro item da primeira fileira recebe o foco inicial. */
-private fun <T> LazyListScope.contentRow(title: String, values: List<T>, key: (T) -> String, focus: FocusRequester?, card: @Composable (T, Modifier) -> Unit) {
+/** Foco compartilhado pelas fileiras de uma tela: qual fileira/cartão lembrar e onde começar. */
+private class RowsFocus(val memory: RowsFocusMemory, val rows: Set<String>) {
+    val fallback = rows.firstOrNull()
+}
+
+/** Margem lateral das fileiras: espaço para o cartão crescer e brilhar no foco sem ser cortado. */
+private val ROW_INSET = 14.dp
+
+/**
+ * Fileira horizontal com título, no estilo Netflix: o cartão em foco fica sempre na mesma posição
+ * (a fileira desliza por baixo dele) e, ao voltar para a fileira com ▲▼, o foco retorna ao cartão
+ * em que estava — em vez de cair no cartão "mais próximo" na tela.
+ */
+private fun <T> LazyListScope.contentRow(title: String, values: List<T>, key: (T) -> String, focus: RowsFocus?, card: @Composable (T, Modifier) -> Unit) {
     if (values.isEmpty()) return
-    item(key = "title:$title") { SectionTitle(title) }
+    item(key = "title:$title") { SectionTitle(title, Modifier.padding(start = ROW_INSET, top = 8.dp)) }
     item(key = "row:$title") {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)) {
-            itemsIndexed(values, key = { _, v -> key(v) }) { index, value ->
-                card(value, if (index == 0 && focus != null) Modifier.focusRequester(focus) else Modifier)
+        val inset = with(LocalDensity.current) { ROW_INSET.toPx() }
+        // Guardado pela própria lista vertical: sobrevive à fileira sair da tela e voltar.
+        val entry = rememberFocusMemory("row:$title")
+        RowPivot(inset) {
+            LazyRow(
+                Modifier.fillMaxWidth().then(entry.group()),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(horizontal = ROW_INSET, vertical = 16.dp),
+            ) {
+                itemsIndexed(values, key = { _, v -> key(v) }) { index, value ->
+                    val screen = focus?.memory?.item(title, index, focus.fallback, focus.rows) ?: Modifier
+                    card(value, screen.then(entry.item(index)))
+                }
             }
         }
+    }
+}
+
+/** Lista vertical de fileiras: a fileira em foco para logo abaixo do topo, com o título visível. */
+@Composable
+private fun RowsColumn(state: LazyListState = rememberLazyListState(), content: LazyListScope.() -> Unit) {
+    val offset = with(LocalDensity.current) { 52.dp.toPx() }
+    ColumnPivot(fraction = 0f, offsetPx = offset) {
+        LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 64.dp), content = content)
     }
 }
 
@@ -139,32 +188,37 @@ fun HomeScreen() {
 
     val resume = history.filter { it.resumable() }.take(ROW)
     val recentChannels = history.filter { it.kind == ContentKind.LIVE.id }.take(ROW)
-    val focus = remember { FocusRequester() }
-    val firstRow = listOf(resume.isNotEmpty(), recentChannels.isNotEmpty(), favorites.isNotEmpty(), live.isNotEmpty(), movies.isNotEmpty(), series.isNotEmpty()).indexOf(true)
+    val memory = rememberRowsFocusMemory("home")
+    val rows = linkedMapOf(
+        Txt.CONTINUE to resume, "Canais recentes" to recentChannels, Txt.FAVORITES to favorites,
+        "Canais ao vivo" to live, Txt.MOVIES to movies, Txt.SERIES to series,
+    ).filterValues { it.isNotEmpty() }.keys
+    val focus = RowsFocus(memory, rows)
 
-    LazyColumn(Modifier.fillMaxSize(), state = rememberLazyListState(), contentPadding = PaddingValues(bottom = 48.dp)) {
-        item(key = "header") { ScreenTitle(Txt.HOME, subtitle = Txt.TAGLINE) }
+    RowsColumn {
+        item(key = "header") { ScreenTitle(Txt.HOME, Modifier.padding(start = ROW_INSET), subtitle = Txt.TAGLINE) }
         if (!hasContent) item(key = "empty") { EmptyState(Txt.EMPTY_LIBRARY) }
-        contentRow(Txt.CONTINUE, resume, { it.itemId }, if (firstRow == 0) focus else null) { entry, m ->
+        contentRow(Txt.CONTINUE, resume, { it.itemId }, focus) { entry, m ->
             ChannelCard(entry.name, entry.logo, { playHistory(entry) }, m, caption = Txt.clock(entry.position) + " / " + Txt.clock(entry.duration), progress = entry.fraction())
         }
-        contentRow("Canais recentes", recentChannels, { it.itemId }, if (firstRow == 1) focus else null) { entry, m ->
+        contentRow("Canais recentes", recentChannels, { it.itemId }, focus) { entry, m ->
             ChannelCard(entry.name, entry.logo, { playHistory(entry) }, m)
         }
-        contentRow(Txt.FAVORITES, favorites, { it.favorite.id }, if (firstRow == 2) focus else null) { fav, m ->
+        contentRow(Txt.FAVORITES, favorites, { it.favorite.id }, focus) { fav, m ->
             FavoriteCard(fav, navigator, m)
         }
-        contentRow("Canais ao vivo", live, { it.id }, if (firstRow == 3) focus else null) { item, m ->
+        contentRow("Canais ao vivo", live, { it.id }, focus) { item, m ->
             ChannelCard(item.name, item.logo, { navigator.play(live, item) }, m, onLongClick = { toggleFavorite(item.id, item.kind, item.playlistId) })
         }
-        contentRow(Txt.MOVIES, movies, { it.id }, if (firstRow == 4) focus else null) { item, m ->
+        contentRow(Txt.MOVIES, movies, { it.id }, focus) { item, m ->
             PosterCard(item.name, item.logo, { navigator.open(Route.MovieDetail(item.id)) }, m, onLongClick = { toggleFavorite(item.id, item.kind, item.playlistId) }, caption = item.year?.toString())
         }
-        contentRow(Txt.SERIES, series.take(ROW), { it.id }, if (firstRow == 5) focus else null) { s, m ->
+        contentRow(Txt.SERIES, series.take(ROW), { it.id }, focus) { s, m ->
             SeriesPoster(s, navigator, m)
         }
     }
-    if (firstRow >= 0) RequestFocus(focus, firstRow)
+    // Só na chegada à tela (ou quando a primeira fileira aparece): nunca rouba o foco depois.
+    if (rows.isNotEmpty()) RequestFocus(memory.requester, rows.isNotEmpty())
 }
 
 @Composable
@@ -200,9 +254,9 @@ fun FavoritesScreen() {
     val toggleFavorite = rememberFavoriteToggle()
     val favorites by library.favorites.collectAsStateWithLifecycle(null)
     val list = favorites
-    val focus = remember { FocusRequester() }
+    val memory = rememberRowsFocusMemory("favorites")
     Column(Modifier.fillMaxSize()) {
-        ScreenTitle(Txt.FAVORITES, subtitle = Txt.LONG_PRESS_HINT.replace("favoritar", "remover"))
+        ScreenTitle(Txt.FAVORITES, Modifier.padding(start = ROW_INSET), subtitle = Txt.LONG_PRESS_HINT.replace("favoritar", "remover"))
         if (list == null) return@Column
         if (list.isEmpty()) {
             EmptyState(Txt.EMPTY_FAVORITES)
@@ -211,17 +265,18 @@ fun FavoritesScreen() {
         val channels = list.mapNotNull { (it as? FavoriteEntry.Item)?.item?.takeIf { i -> i.kind == ContentKind.LIVE } }
         val movies = list.mapNotNull { (it as? FavoriteEntry.Item)?.item?.takeIf { i -> i.kind != ContentKind.LIVE } }
         val series = list.mapNotNull { (it as? FavoriteEntry.Series)?.series }
-        val first = listOf(channels, movies, series).indexOfFirst { it.isNotEmpty() }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
-            contentRow("Canais", channels, { it.id }, if (first == 0) focus else null) { item, m ->
+        val rows = linkedMapOf("Canais" to channels, Txt.MOVIES to movies, Txt.SERIES to series).filterValues { it.isNotEmpty() }.keys
+        val rowsFocus = RowsFocus(memory, rows)
+        RowsColumn {
+            contentRow("Canais", channels, { it.id }, rowsFocus) { item, m ->
                 ChannelCard(item.name, item.logo, { navigator.play(channels, item) }, m, onLongClick = { toggleFavorite(item.id, item.kind, item.playlistId) })
             }
-            contentRow(Txt.MOVIES, movies, { it.id }, if (first == 1) focus else null) { item, m ->
+            contentRow(Txt.MOVIES, movies, { it.id }, rowsFocus) { item, m ->
                 PosterCard(item.name, item.logo, { navigator.open(Route.MovieDetail(item.id)) }, m, onLongClick = { toggleFavorite(item.id, item.kind, item.playlistId) })
             }
-            contentRow(Txt.SERIES, series, { it.id }, if (first == 2) focus else null) { s, m -> SeriesPoster(s, navigator, m) }
+            contentRow(Txt.SERIES, series, { it.id }, rowsFocus) { s, m -> SeriesPoster(s, navigator, m) }
         }
-        RequestFocus(focus, first)
+        RequestFocus(memory.requester, rows.isNotEmpty())
     }
 }
 
@@ -242,6 +297,7 @@ fun HistoryScreen() {
             list == null -> Unit
             list.isEmpty() -> EmptyState(Txt.EMPTY_HISTORY)
             else -> {
+                ColumnPivot {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 48.dp)) {
                     itemsIndexed(list, key = { _, e -> e.itemId }) { index, entry ->
                         val kind = when (entry.kind) {
@@ -267,6 +323,7 @@ fun HistoryScreen() {
                         )
                     }
                 }
+                }
                 RequestFocus(memory.requester)
             }
         }
@@ -291,9 +348,9 @@ fun SearchScreen() {
         results = if (query.isBlank()) null else library.search(query)
     }
     val field = remember { FocusRequester() }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
+    RowsColumn {
         item(key = "header") {
-            Column {
+            Column(Modifier.padding(horizontal = ROW_INSET)) {
                 ScreenTitle(Txt.SEARCH, subtitle = "Canais, filmes e séries de todas as listas ativas. Sem acentos e sem diferenciar maiúsculas.")
                 TvTextField(query, { query = it }, "Pesquisar", Modifier.width(560.dp), placeholder = "Nome do canal, filme ou série", imeAction = ImeAction.Search, focusRequester = field)
                 Spacer(Modifier.height(16.dp))
@@ -314,6 +371,50 @@ fun SearchScreen() {
     RequestFocus(field)
 }
 
+/**
+ * Fundo das telas de detalhe: a capa ocupa o lado direito e se dissolve no azul-marinho,
+ * deixando o texto à esquerda sempre legível.
+ */
+@Composable
+private fun Backdrop(image: String?, title: String, modifier: Modifier = Modifier) {
+    if (image == null) return
+    Box(modifier.fillMaxSize()) {
+        // Sem iniciais de reserva: se a imagem não carregar, o fundo fica só no azul-marinho.
+        AsyncImage(image, contentDescription = null, modifier = Modifier.align(Alignment.TopEnd).fillMaxWidth(0.62f).fillMaxHeight(), contentScale = ContentScale.Crop, alpha = 0.55f)
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.horizontalGradient(0.30f to TuiColors.Navy, 0.62f to TuiColors.Navy.copy(alpha = 0.78f), 1f to TuiColors.Navy.copy(alpha = 0.25f)),
+            ),
+        )
+        Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to TuiColors.Navy)))
+    }
+}
+
+/** Ficha do título: capa, nome, dados e sinopse (a tela antes do play, como na Netflix). */
+@Composable
+private fun TitleHeader(title: String, image: String?, meta: String, synopsis: String?, progress: Float? = null, actions: @Composable () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 24.dp, start = ROW_INSET)) {
+        Box(Modifier.width(200.dp).height(300.dp).clip(RoundedCornerShape(12.dp))) {
+            RemoteImage(image, title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (progress != null) ProgressLine(progress, Modifier.align(Alignment.BottomCenter), color = TuiColors.Danger)
+        }
+        Spacer(Modifier.width(40.dp))
+        Column(Modifier.width(620.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(title, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.titleMedium, color = TuiColors.Muted)
+            Text(
+                synopsis?.takeIf { it.isNotBlank() } ?: "Esta lista não informa a sinopse deste título.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (synopsis.isNullOrBlank()) TuiColors.Muted else TuiColors.White.copy(alpha = 0.9f),
+                maxLines = 6,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) { actions() }
+        }
+    }
+}
+
 @Composable
 fun MovieDetailScreen(itemId: String) {
     val library = library()
@@ -325,27 +426,26 @@ fun MovieDetailScreen(itemId: String) {
     val focus = remember { FocusRequester() }
     val movie = item ?: return
     val resume = entry?.takeIf { it.resumable() }
-    Row(Modifier.fillMaxSize().padding(top = 12.dp)) {
-        RemoteImage(movie.logo, movie.name, Modifier.width(240.dp).height(360.dp), contentScale = ContentScale.Crop)
-        Spacer(Modifier.width(36.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(movie.name, style = MaterialTheme.typography.headlineMedium)
-            Muted(listOfNotNull(movie.year?.toString(), movie.duration?.let { Txt.duration(it) }, movie.group).joinToString(" · "))
-            movie.description?.let { Text(it, style = MaterialTheme.typography.bodyLarge, maxLines = 8) }
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (resume != null) {
-                    ActionButton("Continuar de ${Txt.clock(resume.position)}", { navigator.play(listOf(movie), movie, resume.position) }, Modifier.focusRequester(focus), Icons.Filled.PlayArrow, primary = true)
-                    ActionButton("Do início", { navigator.play(listOf(movie), movie) }, icon = Icons.Filled.Refresh)
-                } else {
-                    ActionButton("Assistir", { navigator.play(listOf(movie), movie) }, Modifier.focusRequester(focus), Icons.Filled.PlayArrow, primary = true)
-                }
-                ActionButton(
-                    if (favorite) "Remover dos favoritos" else "Favoritar",
-                    { toggleFavorite(movie.id, movie.kind, movie.playlistId) },
-                    icon = if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                )
+    Box(Modifier.fillMaxSize()) {
+        Backdrop(movie.logo, movie.name)
+        TitleHeader(
+            title = movie.name,
+            image = movie.logo,
+            meta = listOfNotNull(movie.year?.toString(), movie.duration?.let { Txt.duration(it) }, movie.group).joinToString("  ·  "),
+            synopsis = movie.description,
+            progress = resume?.fraction(),
+        ) {
+            if (resume != null) {
+                ActionButton("Continuar de ${Txt.clock(resume.position)}", { navigator.play(listOf(movie), movie, resume.position) }, Modifier.focusRequester(focus), Icons.Filled.PlayArrow, primary = true)
+                ActionButton("Do início", { navigator.play(listOf(movie), movie) }, icon = Icons.Filled.Refresh)
+            } else {
+                ActionButton("Assistir", { navigator.play(listOf(movie), movie) }, Modifier.focusRequester(focus), Icons.Filled.PlayArrow, primary = true)
             }
+            ActionButton(
+                if (favorite) "Nos favoritos" else "Favoritar",
+                { toggleFavorite(movie.id, movie.kind, movie.playlistId) },
+                icon = if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+            )
         }
     }
     RequestFocus(focus, resume != null)
@@ -364,6 +464,8 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
     var seasonIndex by rememberSaveable(id) { mutableIntStateOf(-1) }
     val playFocus = remember { FocusRequester() }
     val memory = rememberFocusMemory(id, seasonIndex)
+    // Entrar na fileira de temporadas leva sempre à temporada escolhida.
+    val seasonFocus = remember { FocusMemory(0) }
     val errors by library.remoteErrors.collectAsStateWithLifecycle()
     val series = group ?: run {
         when {
@@ -384,35 +486,34 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
     if (seasonIndex < 0) seasonIndex = series.seasons.indexOfFirst { s -> s.episodes.any { it.id == target.first.id } }.coerceAtLeast(0)
     val season = series.seasons.getOrNull(seasonIndex) ?: series.seasons.first()
 
-    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 48.dp)) {
+    ColumnPivot {
+    LazyColumn(Modifier.fillMaxSize().focusRestorer(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(ROW_INSET, 8.dp, ROW_INSET, 48.dp)) {
         item(key = "header") {
-            Row {
-                RemoteImage(series.logo, series.title, Modifier.width(160.dp).height(240.dp), contentScale = ContentScale.Crop)
-                Spacer(Modifier.width(28.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(series.title, style = MaterialTheme.typography.headlineMedium)
-                    Muted(listOfNotNull(Txt.plural(series.seasons.size, "temporada", "temporadas"), Txt.plural(series.episodeCount, "episódio", "episódios"), series.group).joinToString(" · "))
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        val (ep, position) = target
-                        val label = (if (position != null) "Continuar " else "Assistir ") + Txt.episodeLabel(ep.series!!.season, ep.series!!.episode)
-                        ActionButton(label, { navigator.play(flat, ep, position) }, Modifier.focusRequester(playFocus), Icons.Filled.PlayArrow, primary = true)
-                        ActionButton(
-                            if (favorite) "Remover dos favoritos" else "Favoritar",
-                            { toggleFavorite(id, ContentKind.SERIES, playlistId) },
-                            icon = if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        )
-                    }
-                }
+            val (ep, position) = target
+            TitleHeader(
+                title = series.title,
+                image = series.logo,
+                meta = listOfNotNull(Txt.plural(series.seasons.size, "temporada", "temporadas"), Txt.plural(series.episodeCount, "episódio", "episódios"), series.group).joinToString("  ·  "),
+                synopsis = flat.firstNotNullOfOrNull { it.description?.takeIf { d -> d.isNotBlank() } },
+            ) {
+                val label = (if (position != null) "Continuar " else "Assistir ") + Txt.episodeLabel(ep.series!!.season, ep.series!!.episode)
+                ActionButton(label, { navigator.play(flat, ep, position) }, Modifier.focusRequester(playFocus), Icons.Filled.PlayArrow, primary = true)
+                ActionButton(
+                    if (favorite) "Nos favoritos" else "Favoritar",
+                    { toggleFavorite(id, ContentKind.SERIES, playlistId) },
+                    icon = if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                )
             }
         }
         if (series.seasons.size > 1) {
             item(key = "seasons") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+                // ▲ a partir dos episódios volta à temporada escolhida (não à mais próxima na tela).
+                LazyRow(Modifier.then(seasonFocus.group()), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = ROW_INSET, vertical = 16.dp)) {
                     itemsIndexed(series.seasons, key = { _, s -> s.season }) { index, s ->
                         ActionButton(
                             if (s.season > 0) "Temporada ${s.season}" else "Episódios",
                             { seasonIndex = index },
+                            if (index == seasonIndex) Modifier.focusRequester(seasonFocus.requester) else Modifier,
                             primary = index == seasonIndex,
                         )
                     }
@@ -430,6 +531,7 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
                 modifier = memory.item(index),
             )
         }
+    }
     }
     RequestFocus(playFocus)
 }

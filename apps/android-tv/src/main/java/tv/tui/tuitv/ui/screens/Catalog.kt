@@ -29,9 +29,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
@@ -46,6 +45,7 @@ import tv.tui.tuitv.data.GroupFilter
 import tv.tui.tuitv.data.Programme
 import tv.tui.tuitv.ui.Route
 import tv.tui.tuitv.ui.Txt
+import tv.tui.tuitv.ui.components.ColumnPivot
 import tv.tui.tuitv.ui.components.EmptyState
 import tv.tui.tuitv.ui.components.ListRow
 import tv.tui.tuitv.ui.components.Loading
@@ -106,8 +106,7 @@ private fun emptyText(): String {
  * pelo controle não dispara consultas a cada passo); OK aplica na hora e leva o foco ao conteúdo.
  */
 @Composable
-private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier, width: Int = 260) {
-    val focusManager = LocalFocusManager.current
+private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (String) -> Unit, onOpen: () -> Unit, modifier: Modifier = Modifier, width: Int = 260) {
     var pending by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(pending) {
         val key = pending ?: return@LaunchedEffect
@@ -116,8 +115,10 @@ private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (
     }
     val memory = rememberFocusMemory("groups")
     val state = rememberLazyListState()
+    ColumnPivot {
     LazyColumn(
-        modifier.width(width.dp).fillMaxHeight(),
+        // ◀ a partir do conteúdo volta sempre à categoria em que o usuário estava.
+        modifier.width(width.dp).fillMaxHeight().focusRestorer(memory.requester),
         state = state,
         verticalArrangement = Arrangement.spacedBy(6.dp),
         contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
@@ -139,13 +140,21 @@ private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (
                 onClick = {
                     pending = null
                     onSelect(key)
-                    focusManager.moveFocus(FocusDirection.Right)
+                    onOpen()
                 },
                 modifier = memory.item(index),
             )
         }
     }
+    }
 }
+
+/**
+ * Quando o conteúdo deve receber o foco: ao abrir a tela e ao confirmar uma categoria com OK.
+ * Navegar pelas categorias (que troca o conteúdo após uma pausa) nunca tira o foco da coluna.
+ */
+@Composable
+private fun rememberContentFocus() = remember { mutableStateOf(true) }
 
 @Composable
 fun LiveScreen() {
@@ -158,19 +167,21 @@ fun LiveScreen() {
     val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
     val memory = rememberFocusMemory("channels", groupKey)
     val listState = rememberLazyListState()
+    var focusContent by rememberContentFocus()
 
     Column(Modifier.fillMaxSize()) {
         ScreenTitle(Txt.LIVE, subtitle = items?.let { Txt.plural(it.size, "canal", "canais") + " · " + Txt.LONG_PRESS_HINT })
         Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, setGroup)
+            GroupColumn(groups, groupKey, setGroup, onOpen = { focusContent = true })
             Spacer(Modifier.width(20.dp))
             val list = items
             when {
                 list == null -> Loading(Modifier.weight(1f))
                 list.isEmpty() -> EmptyState(emptyText(), Modifier.weight(1f))
                 else -> {
+                    ColumnPivot {
                     LazyColumn(
-                        Modifier.weight(1f).fillMaxHeight(),
+                        Modifier.weight(1f).fillMaxHeight().focusRestorer(memory.requester),
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
@@ -186,11 +197,12 @@ fun LiveScreen() {
                             )
                         }
                     }
+                    }
                     LaunchedEffect(groupKey) {
                         if (memory.index >= list.size) memory.index = 0
                         listState.scrollToItem(memory.index)
                     }
-                    RequestFocus(memory.requester, groupKey)
+                    if (focusContent) RequestFocus(memory.requester, groupKey) { focusContent = false }
                 }
             }
         }
@@ -228,6 +240,7 @@ fun CatalogScreen(kind: ContentKind) {
     val (groupKey, setGroup) = rememberGroupKey(kind, groups)
     val memory = rememberFocusMemory(kind, groupKey)
     val gridState = rememberLazyGridState()
+    var focusContent by rememberContentFocus()
     val title = if (kind == ContentKind.MOVIE) Txt.MOVIES else Txt.SERIES
 
     val movies by remember(groupKey, kind) {
@@ -245,20 +258,21 @@ fun CatalogScreen(kind: ContentKind) {
     Column(Modifier.fillMaxSize()) {
         ScreenTitle(title, subtitle = count?.let { if (kind == ContentKind.MOVIE) Txt.plural(it, "filme", "filmes") else Txt.plural(it, "série", "séries") })
         Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, setGroup)
+            GroupColumn(groups, groupKey, setGroup, onOpen = { focusContent = true })
             Spacer(Modifier.width(20.dp))
             val loaded = if (kind == ContentKind.MOVIE) movies != null else series != null
             when {
                 !loaded -> Loading(Modifier.weight(1f))
                 count == 0 -> EmptyState(emptyText(), Modifier.weight(1f))
                 else -> {
+                    ColumnPivot {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(150.dp),
+                        columns = GridCells.Adaptive(140.dp),
                         state = gridState,
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                        contentPadding = PaddingValues(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                        modifier = Modifier.weight(1f).fillMaxHeight().focusRestorer(memory.requester),
+                        contentPadding = PaddingValues(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(22.dp),
+                        verticalArrangement = Arrangement.spacedBy(24.dp),
                     ) {
                         if (kind == ContentKind.MOVIE) {
                             itemsIndexed(movies!!, key = { _, m -> m.id }) { index, movie ->
@@ -269,6 +283,7 @@ fun CatalogScreen(kind: ContentKind) {
                                     onClick = { navigator.open(Route.MovieDetail(movie.id)) },
                                     onLongClick = { toggleFavorite(movie.id, movie.kind, movie.playlistId) },
                                     modifier = memory.item(index),
+                                    fill = true,
                                 )
                             }
                         } else {
@@ -281,15 +296,17 @@ fun CatalogScreen(kind: ContentKind) {
                                     onClick = { navigator.open(Route.SeriesDetail(s.playlistId, s.seriesKey)) },
                                     onLongClick = { toggleFavorite(s.id, ContentKind.SERIES, s.playlistId) },
                                     modifier = memory.item(index),
+                                    fill = true,
                                 )
                             }
                         }
+                    }
                     }
                     LaunchedEffect(groupKey) {
                         if (memory.index >= (count ?: 0)) memory.index = 0
                         gridState.scrollToItem(memory.index)
                     }
-                    RequestFocus(memory.requester, groupKey)
+                    if (focusContent) RequestFocus(memory.requester, groupKey) { focusContent = false }
                 }
             }
         }
@@ -308,19 +325,21 @@ fun GuideScreen() {
     val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
     var focused by remember { mutableStateOf<MediaItem?>(null) }
     val memory = rememberFocusMemory("guide", groupKey)
+    var focusContent by rememberContentFocus()
 
     Column(Modifier.fillMaxSize()) {
         ScreenTitle(Txt.GUIDE, subtitle = if (sources.isEmpty()) "Nenhum guia (XMLTV) adicionado. Adicione um em Listas." else null)
         Row(Modifier.fillMaxSize()) {
-            GroupColumn(groups, groupKey, setGroup, width = 220)
+            GroupColumn(groups, groupKey, setGroup, onOpen = { focusContent = true }, width = 220)
             Spacer(Modifier.width(16.dp))
             val list = items
             when {
                 list == null -> Loading(Modifier.weight(1f))
                 list.isEmpty() -> EmptyState(emptyText(), Modifier.weight(1f))
                 else -> {
+                    ColumnPivot {
                     LazyColumn(
-                        Modifier.width(360.dp).fillMaxHeight(),
+                        Modifier.width(360.dp).fillMaxHeight().focusRestorer(memory.requester),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
                     ) {
@@ -335,7 +354,8 @@ fun GuideScreen() {
                             )
                         }
                     }
-                    RequestFocus(memory.requester, groupKey)
+                    }
+                    if (focusContent) RequestFocus(memory.requester, groupKey) { focusContent = false }
                     Spacer(Modifier.width(20.dp))
                     Schedule(focused, epgVersion, Modifier.weight(1f))
                 }

@@ -1,6 +1,19 @@
 package tv.tui.tuitv.ui.components
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Shape
+import androidx.tv.material3.Glow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
@@ -64,41 +77,62 @@ import kotlinx.coroutines.delay
 import tv.tui.tuitv.ui.theme.TuiColors
 
 private val CardShape = RoundedCornerShape(10.dp)
+private val RowShape = RoundedCornerShape(10.dp)
+private val PillShape = RoundedCornerShape(50)
 
-/** Superfície focável padrão: fundo elevado, borda ciano e leve aumento no foco. */
+/** Altura única de todos os botões do aplicativo. */
+val ButtonHeight = 48.dp
+private val ButtonMinWidth = 132.dp
+
+/** Brilho suave ao redor do elemento em foco (no lugar de borda). */
+private val FocusGlow = Glow(elevationColor = TuiColors.Cyan.copy(alpha = 0.55f), elevation = 14.dp)
+
+/**
+ * Superfície focável padrão, sem borda: no foco ela cresce, ganha brilho e o conteúdo
+ * escurecido "acende" ([dimUnfocused]) — o mesmo vocabulário visual de cartões da Netflix.
+ */
 @Composable
 fun TuiSurface(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
-    selected: Boolean = false,
-    shape: androidx.compose.ui.graphics.Shape = CardShape,
-    focusedScale: Float = 1.04f,
+    shape: Shape = CardShape,
+    focusedScale: Float = 1.08f,
     container: Color = TuiColors.NavyRaised,
+    dimUnfocused: Boolean = true,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val focused by interactionSource.collectIsFocusedAsState()
+    val dim by animateFloatAsState(if (focused || !dimUnfocused) 0f else 0.28f, tween(180), label = "dim")
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         modifier = modifier,
+        interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) TuiColors.Line else container,
+            containerColor = container,
             contentColor = TuiColors.White,
-            focusedContainerColor = TuiColors.Focus,
+            focusedContainerColor = container,
             focusedContentColor = TuiColors.White,
-            pressedContainerColor = TuiColors.Focus,
+            pressedContainerColor = container,
             pressedContentColor = TuiColors.White,
         ),
-        border = ClickableSurfaceDefaults.border(
-            border = if (selected) Border(BorderStroke(2.dp, TuiColors.Cyan.copy(alpha = 0.5f)), shape = shape) else Border.None,
-            focusedBorder = Border(BorderStroke(3.dp, TuiColors.Cyan), shape = shape),
-        ),
+        border = ClickableSurfaceDefaults.border(border = Border.None, focusedBorder = Border.None, pressedBorder = Border.None),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = FocusGlow),
         scale = ClickableSurfaceDefaults.scale(focusedScale = focusedScale),
-        content = content,
-    )
+    ) {
+        content()
+        if (dim > 0f) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dim)))
+    }
 }
 
+/**
+ * Botão padrão: mesma altura e largura mínima em todo o aplicativo, sem borda.
+ * Em foco fica branco (texto escuro) e cresce levemente; [primary] marca a ação principal
+ * (ou a opção escolhida, em seletores).
+ */
 @Composable
 fun ActionButton(
     text: String,
@@ -110,22 +144,37 @@ fun ActionButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.height(ButtonHeight).widthIn(min = ButtonMinWidth),
         enabled = enabled,
+        shape = ButtonDefaults.shape(PillShape),
         colors = ButtonDefaults.colors(
-            // Botões secundários em tom mais claro: visíveis também sobre painéis elevados.
-            containerColor = if (primary) TuiColors.Cyan else TuiColors.Line,
+            containerColor = if (primary) TuiColors.Cyan else TuiColors.White.copy(alpha = 0.12f),
             contentColor = if (primary) TuiColors.Navy else TuiColors.White,
             focusedContainerColor = TuiColors.White,
             focusedContentColor = TuiColors.Navy,
+            pressedContainerColor = TuiColors.White.copy(alpha = 0.85f),
+            pressedContentColor = TuiColors.Navy,
+            disabledContainerColor = TuiColors.White.copy(alpha = 0.06f),
+            disabledContentColor = TuiColors.Muted,
         ),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+        border = ButtonDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None,
+            pressedBorder = Border.None,
+            disabledBorder = Border.None,
+            focusedDisabledBorder = Border.None,
+        ),
+        scale = ButtonDefaults.scale(focusedScale = 1.06f, focusedDisabledScale = 1.02f),
+        glow = ButtonDefaults.glow(focusedGlow = Glow(TuiColors.White.copy(alpha = 0.25f), 10.dp)),
+        contentPadding = PaddingValues(horizontal = 22.dp),
     ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
+        Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(text, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(text, style = MaterialTheme.typography.titleSmall)
     }
 }
 
@@ -183,39 +232,70 @@ private fun initials(text: String): String =
     text.split(' ', '-', '|', ':').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1).uppercase() }.ifEmpty { "TV" }
 
 @Composable
-fun ProgressLine(fraction: Float, modifier: Modifier = Modifier, height: Dp = 4.dp, color: Color = TuiColors.Cyan) {
-    Box(modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height)).background(TuiColors.Line)) {
+fun ProgressLine(fraction: Float, modifier: Modifier = Modifier, height: Dp = 4.dp, color: Color = TuiColors.Cyan, track: Color = TuiColors.Line) {
+    Box(modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height)).background(track)) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(color))
+    }
+}
+
+/**
+ * Cartão com imagem e legenda: o título abaixo acende quando o cartão está em foco,
+ * reforçando onde o controle está sem precisar de borda.
+ */
+@Composable
+private fun MediaCard(
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    imageHeight: Dp,
+    onLongClick: (() -> Unit)?,
+    caption: String?,
+    progress: Float?,
+    titleLines: Int,
+    image: @Composable BoxScope.() -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val titleColor by animateColorAsState(if (focused) TuiColors.White else TuiColors.Muted, tween(180), label = "title")
+    Column(modifier) {
+        TuiSurface(onClick = onClick, onLongClick = onLongClick, interactionSource = interaction, modifier = Modifier.fillMaxWidth().height(imageHeight)) {
+            image()
+            if (progress != null) ProgressLine(progress, Modifier.align(Alignment.BottomCenter), color = TuiColors.Danger)
+        }
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal),
+            color = titleColor,
+            maxLines = titleLines,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        if (caption != null) Muted(caption, maxLines = 1)
     }
 }
 
 /** Cartão de canal (logotipo + nome) para fileiras horizontais. */
 @Composable
 fun ChannelCard(name: String, logo: String?, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, caption: String? = null, progress: Float? = null) {
-    Column(modifier.width(200.dp)) {
-        TuiSurface(onClick = onClick, onLongClick = onLongClick, modifier = Modifier.fillMaxWidth().height(112.dp)) {
-            RemoteImage(logo, name, Modifier.fillMaxSize().padding(14.dp))
-            if (progress != null) ProgressLine(progress, Modifier.align(Alignment.BottomCenter))
-        }
-        Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-        if (caption != null) Muted(caption, maxLines = 1)
+    MediaCard(name, onClick, modifier.width(208.dp), 117.dp, onLongClick, caption, progress, titleLines = 1) {
+        RemoteImage(logo, name, Modifier.fillMaxSize().padding(16.dp))
     }
 }
 
-/** Cartão de capa 2:3 para filmes e séries. */
+/** Cartão de capa 2:3 para filmes e séries; [fill] ocupa a largura da célula (grades). */
 @Composable
-fun PosterCard(title: String, image: String?, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, caption: String? = null, progress: Float? = null) {
-    Column(modifier.width(140.dp)) {
-        TuiSurface(onClick = onClick, onLongClick = onLongClick, modifier = Modifier.fillMaxWidth().height(210.dp)) {
+fun PosterCard(title: String, image: String?, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, caption: String? = null, progress: Float? = null, fill: Boolean = false) {
+    BoxWithConstraints(if (fill) modifier.fillMaxWidth() else modifier.width(144.dp)) {
+        MediaCard(title, onClick, Modifier.fillMaxWidth(), maxWidth * 1.5f, onLongClick, caption, progress, titleLines = 1) {
             RemoteImage(image, title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (progress != null) ProgressLine(progress, Modifier.align(Alignment.BottomCenter))
         }
-        Text(title, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-        if (caption != null) Muted(caption, maxLines = 1)
     }
 }
 
-/** Linha focável de lista (categorias, canais, configurações). */
+/**
+ * Linha focável de lista (categorias, canais, configurações). Sem borda: em foco a linha fica
+ * branca com texto escuro; a opção escolhida (fora de foco) leva uma barra ciano à esquerda.
+ */
 @Composable
 fun ListRow(
     title: String,
@@ -229,32 +309,61 @@ fun ListRow(
     leading: (@Composable () -> Unit)? = null,
     progress: Float? = null,
 ) {
-    TuiSurface(
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val secondary = if (focused) TuiColors.Navy.copy(alpha = 0.72f) else TuiColors.Muted
+    Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        selected = selected,
-        focusedScale = 1.02f,
+        interactionSource = interaction,
         modifier = modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) onFocus?.invoke() },
+        shape = ClickableSurfaceDefaults.shape(RowShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) TuiColors.NavyRaised else TuiColors.NavyRaised.copy(alpha = 0.45f),
+            contentColor = if (selected) TuiColors.Cyan else TuiColors.White,
+            focusedContainerColor = TuiColors.White,
+            focusedContentColor = TuiColors.Navy,
+            pressedContainerColor = TuiColors.White.copy(alpha = 0.85f),
+            pressedContentColor = TuiColors.Navy,
+        ),
+        border = ClickableSurfaceDefaults.border(border = Border.None, focusedBorder = Border.None, pressedBorder = Border.None),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.heightIn(min = 52.dp).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selected && !focused) {
+                Box(Modifier.padding(end = 12.dp).size(width = 4.dp, height = 22.dp).clip(RoundedCornerShape(2.dp)).background(TuiColors.Cyan))
+            }
             if (leading != null) {
                 leading()
                 Spacer(Modifier.width(12.dp))
             }
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (subtitle != null) Muted(subtitle, maxLines = 1)
-                if (progress != null) ProgressLine(progress, Modifier.padding(top = 6.dp), height = 3.dp)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (progress != null) {
+                    ProgressLine(
+                        progress,
+                        Modifier.padding(top = 6.dp),
+                        height = 3.dp,
+                        color = if (focused) TuiColors.Navy else TuiColors.Cyan,
+                        track = if (focused) TuiColors.Navy.copy(alpha = 0.15f) else TuiColors.Line,
+                    )
+                }
             }
             if (trailing != null) {
                 Spacer(Modifier.width(12.dp))
-                Text(trailing, style = MaterialTheme.typography.bodyMedium, color = TuiColors.Muted, maxLines = 1)
+                Text(trailing, style = MaterialTheme.typography.bodyMedium, color = secondary, maxLines = 1)
             }
         }
     }
 }
 
-/** Campo de texto para TV: OK abre o teclado do sistema; borda ciano no foco. */
+/** Campo de texto para TV: OK abre o teclado do sistema; no foco o fundo clareia e surge um traço ciano embaixo. */
 @Composable
 fun TvTextField(
     value: String,
@@ -269,8 +378,10 @@ fun TvTextField(
     focusRequester: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val background by animateColorAsState(if (focused) TuiColors.Focus else TuiColors.NavyRaised, tween(150), label = "field")
+    val line by animateDpAsState(if (focused) 3.dp else 0.dp, tween(150), label = "line")
     Column(modifier) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = TuiColors.Muted, modifier = Modifier.padding(bottom = 6.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = if (focused) TuiColors.Cyan else TuiColors.Muted, modifier = Modifier.padding(bottom = 6.dp))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -282,11 +393,15 @@ fun TvTextField(
             keyboardActions = KeyboardActions(onDone = { onDone() }, onSearch = { onDone() }, onGo = { onDone() }),
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = ButtonHeight)
                 .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
                 .onFocusChanged { focused = it.isFocused }
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (focused) TuiColors.Focus else TuiColors.NavyRaised)
-                .border(if (focused) 3.dp else 1.dp, if (focused) TuiColors.Cyan else TuiColors.Line, RoundedCornerShape(8.dp))
+                .background(background)
+                .drawBehind {
+                    val h = line.toPx()
+                    if (h > 0f) drawRect(TuiColors.Cyan, topLeft = Offset(0f, size.height - h), size = Size(size.width, h))
+                }
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             decorationBox = { inner ->
                 Box {
@@ -306,7 +421,6 @@ fun TuiDialog(title: String, onDismiss: () -> Unit, width: Dp = 560.dp, content:
             modifier = Modifier.width(width),
             shape = RoundedCornerShape(16.dp),
             colors = SurfaceDefaults.colors(containerColor = TuiColors.Navy, contentColor = TuiColors.White),
-            border = Border(BorderStroke(1.dp, TuiColors.Line), shape = RoundedCornerShape(16.dp)),
         ) {
             // Rolável: na TV (540dp de altura) formulários maiores não cabem inteiros; o foco rola até o campo.
             Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -332,10 +446,14 @@ fun ConfirmDialog(title: String, message: String, confirm: String, onConfirm: ()
 
 /** Pede foco assim que o elemento é composto (ignora se ele ainda não estiver na tela). */
 @Composable
-fun RequestFocus(requester: FocusRequester, key: Any? = Unit) {
+fun RequestFocus(requester: FocusRequester, key: Any? = Unit, onFocused: () -> Unit = {}) {
     LaunchedEffect(key) {
-        repeat(5) {
-            if (runCatching { requester.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+        // Até ~2 s: listas grandes podem demorar a carregar antes de o item existir na tela.
+        repeat(36) {
+            if (runCatching { requester.requestFocus() }.getOrDefault(false)) {
+                onFocused()
+                return@LaunchedEffect
+            }
             delay(60)
         }
     }
