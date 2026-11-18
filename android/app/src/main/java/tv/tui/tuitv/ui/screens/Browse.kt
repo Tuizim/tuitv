@@ -3,6 +3,8 @@ package tv.tui.tuitv.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.LazyListState
@@ -14,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import tv.tui.tuitv.ui.components.ColumnPivot
+import tv.tui.tuitv.ui.components.EpisodeCard
 import tv.tui.tuitv.ui.components.FocusMemory
 import tv.tui.tuitv.ui.components.ProgressLine
 import tv.tui.tuitv.ui.components.RowPivot
@@ -70,6 +73,7 @@ import tv.tui.core.EpisodeProgress
 import tv.tui.core.SeriesGroup
 import tv.tui.core.collapseSeriesHistory
 import tv.tui.core.continueEpisode
+import tv.tui.core.episodeTitle
 import tv.tui.core.groupSeries
 import tv.tui.core.nextEpisode
 import tv.tui.core.seriesId
@@ -252,7 +256,8 @@ fun HomeScreen() {
 
     // Séries no estilo Netflix: um único cartão por série, que continua do episódio mais adiante já assistido.
     val resume by library.continueWatching.collectAsStateWithLifecycle(emptyList())
-    val continueSeries = rememberSeriesContinue()
+    // Cartões de "Continuar assistindo" abrem a página do item (a série com o botão no episódio certo).
+    val openSeries = { entry: HistoryEntry -> navigator.open(Route.SeriesDetail(entry.playlistId, entry.seriesId!!.removePrefix("${entry.playlistId}:s:"))) }
     val recentChannels = history.filter { it.kind == ContentKind.LIVE.id }.take(ROW)
     val memory = rememberRowsFocusMemory("home")
     val rows = linkedMapOf(
@@ -300,9 +305,10 @@ fun HomeScreen() {
             if (row.episodes != null) {
                 val label = if ((entry.season ?: 0) > 0 || (entry.episode ?: 0) > 0) Txt.episodeLabel(entry.season ?: 0, entry.episode ?: 0) else null
                 val caption = listOfNotNull(label, if (entry.resumable()) Txt.clock(entry.position) + " / " + Txt.clock(entry.duration) else null).joinToString(" · ")
-                ChannelCard(entry.seriesTitle ?: entry.name, entry.seriesLogo ?: entry.logo, { continueSeries(entry) }, m, caption = caption.ifEmpty { null }, progress = if (entry.resumable()) entry.fraction() else null)
+                ChannelCard(entry.seriesTitle ?: entry.name, entry.seriesLogo ?: entry.logo, { openSeries(entry) }, m, caption = caption.ifEmpty { null }, progress = if (entry.resumable()) entry.fraction() else null)
             } else {
-                ChannelCard(entry.name, entry.logo, { playHistory(entry) }, m, caption = Txt.clock(entry.position) + " / " + Txt.clock(entry.duration), progress = entry.fraction())
+                // Filme: abre a ficha, como nas outras fileiras.
+                ChannelCard(entry.name, entry.logo, { navigator.open(Route.MovieDetail(entry.itemId)) }, m, caption = Txt.clock(entry.position) + " / " + Txt.clock(entry.duration), progress = entry.fraction())
             }
         }
         contentRow("Canais recentes", recentChannels, { it.itemId }, focus) { entry, m ->
@@ -511,21 +517,21 @@ fun SearchScreen() {
 }
 
 /**
- * Fundo das telas de detalhe: a capa ocupa o lado direito e se dissolve no azul-marinho,
- * deixando o texto à esquerda sempre legível.
+ * Fundo das telas de detalhe (filmes e séries), como na Web e na Samsung: a capa preenche a tela,
+ * bem desfocada e escurecida. O desfoque é barato: a capa é decodificada em 32x18 e apenas ampliada
+ * (a interpolação já desfoca), sem filtro de GPU — que só existe no Android 12+ e pesa nas TVs.
  */
 @Composable
-private fun Backdrop(image: String?, title: String, modifier: Modifier = Modifier) {
+private fun Backdrop(image: String?, modifier: Modifier = Modifier) {
     if (image == null) return
+    val context = LocalPlatformContext.current
+    val request = remember(image) { ImageRequest.Builder(context).data(image).size(32, 18).build() }
     Box(modifier.fillMaxSize()) {
         // Sem iniciais de reserva: se a imagem não carregar, o fundo fica só no azul-marinho.
-        AsyncImage(image, contentDescription = null, modifier = Modifier.align(Alignment.TopEnd).fillMaxWidth(0.62f).fillMaxHeight(), contentScale = ContentScale.Crop, alpha = 0.55f)
-        Box(
-            Modifier.matchParentSize().background(
-                Brush.horizontalGradient(0.30f to TuiColors.Navy, 0.62f to TuiColors.Navy.copy(alpha = 0.78f), 1f to TuiColors.Navy.copy(alpha = 0.25f)),
-            ),
-        )
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to TuiColors.Navy)))
+        AsyncImage(request, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.9f)
+        Box(Modifier.matchParentSize().background(TuiColors.Navy.copy(alpha = 0.45f)))
+        Box(Modifier.matchParentSize().background(Brush.horizontalGradient(0f to TuiColors.Navy, 0.45f to TuiColors.Navy.copy(alpha = 0.75f), 1f to Color.Transparent)))
+        Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to TuiColors.Navy.copy(alpha = 0.5f), 0.5f to Color.Transparent, 1f to TuiColors.Navy)))
     }
 }
 
@@ -625,7 +631,7 @@ fun MovieDetailScreen(itemId: String) {
     // Toque: a ficha rola (no celular ela é mais alta que a tela).
     val container = if (device.tv) Modifier.fillMaxSize() else Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = device.gutter).padding(bottom = 32.dp)
     Box(container) {
-        if (!device.compact) Backdrop(movie.logo, movie.name)
+        if (!device.compact) Backdrop(movie.logo)
         TitleHeader(
             title = movie.name,
             image = movie.logo,
@@ -682,6 +688,9 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
     if (seasonIndex < 0) seasonIndex = series.seasons.indexOfFirst { s -> s.episodes.any { it.id == target.first.id } }.coerceAtLeast(0)
     val season = series.seasons.getOrNull(seasonIndex) ?: series.seasons.first()
 
+    Box(Modifier.fillMaxSize()) {
+    // Mesmo fundo da ficha do filme: a capa da série desfocada.
+    if (!device().compact) Backdrop(series.logo)
     ColumnPivot {
     LazyColumn(Modifier.fillMaxSize().focusRestorer(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(rowInset(), 8.dp, rowInset(), 48.dp)) {
         item(key = "header") {
@@ -718,15 +727,21 @@ fun SeriesDetailScreen(playlistId: String, seriesKey: String) {
         }
         itemsIndexed(season.episodes, key = { _, e -> e.id }) { index, ep ->
             val h = byItem[ep.id]
-            val info = ep.series!!
-            ListRow(
-                title = "${Txt.episodeLabel(info.season, info.episode)}  ${ep.name}",
-                subtitle = listOfNotNull(ep.duration?.let { Txt.duration(it) }, if (h?.completed == true) "assistido" else null, ep.description).joinToString(" · ").ifEmpty { null },
-                progress = h?.takeIf { it.resumable() }?.fraction(),
+            val number = ep.series!!.episode
+            // Cartão no estilo Netflix: miniatura, título próprio do episódio (sem o nome da série) e sinopse.
+            EpisodeCard(
+                number = number,
+                title = episodeTitle(ep.name, series.title) ?: if (number > 0) "Episódio $number" else ep.name,
+                image = ep.logo ?: series.logo,
                 onClick = { navigator.play(flat, ep, h?.takeIf { it.resumable() }?.position) },
                 modifier = memory.item(index),
+                duration = ep.duration?.let { Txt.duration(it) },
+                synopsis = ep.description,
+                watched = h?.completed == true,
+                progress = h?.takeIf { it.resumable() }?.fraction(),
             )
         }
+    }
     }
     }
     RequestFocus(playFocus)

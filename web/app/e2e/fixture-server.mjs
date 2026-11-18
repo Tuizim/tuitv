@@ -59,7 +59,7 @@ const XT = {
     info: { name: 'Vale Escuro', plot: 'Uma cidade e seus segredos.', genre: 'Drama', category_id: '20' },
     episodes: {
       1: [
-        { id: '7001', episode_num: 1, title: 'Vale Escuro - S01E01 - Chegada', container_extension: 'mp4', season: 1, info: { duration_secs: 2400 } },
+        { id: '7001', episode_num: 1, title: 'Vale Escuro - S01E01 - Chegada', container_extension: 'mp4', season: 1, info: { duration_secs: 2400, plot: 'Uma família chega ao vale.', movie_image: 'http://127.0.0.1:4801/thumb-7001.png' } },
         { id: '7002', episode_num: 2, title: 'Vale Escuro - S01E02 - Neblina', container_extension: 'mp4', season: 1, info: {} },
       ],
       2: [{ id: '7101', episode_num: 1, title: 'Vale Escuro - S02E01 - Retorno', container_extension: 'mkv', season: 2, info: {} }],
@@ -103,6 +103,14 @@ createServer((req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
   const cors = { 'access-control-allow-origin': '*' };
   try {
+    // Miniatura de episódio (PNG 16x9 de uma cor só).
+    if (path === '/thumb-7001.png') {
+      const png = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAABAAAAAJCAIAAAC0SDtlAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAFUlEQVR4nGMwDl1FEmIY1RA6GEIJAAkFrCHNUOOhAAAAAElFTkSuQmCC',
+        'base64',
+      );
+      return res.writeHead(200, { ...cors, 'content-type': 'image/png' }).end(png);
+    }
     if (path === '/xt.m3u') {
       const host = 'http://127.0.0.1:4801';
       return res.writeHead(200, cors).end(

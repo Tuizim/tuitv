@@ -108,6 +108,7 @@ export const en: Record<string, string> = {
   '{n} episódios': '{n} episodes',
   'Assistir T{s} E{e}': 'Watch S{s} E{e}',
   'T{s} E{e}': 'S{s} E{e}',
+  'Episódio {n}': 'Episode {n}',
   'Assistir': 'Watch',
   'Marcar temporada como não assistida': 'Mark season as unwatched',
   'Marcar temporada como assistida': 'Mark season as watched',

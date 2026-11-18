@@ -51,6 +51,27 @@ export function matchEpisode(name: string): EpisodeMatch | null {
   return null;
 }
 
+const EDGE_SEPARATORS = /^[\s._\-|:·–—)\]]+|[\s._\-|:·–—([]+$/g;
+
+/**
+ * Título próprio do episódio, sem o nome da série nem a marcação (S01E02, 1x02...), como nos cartões da Netflix:
+ * "A Série S02 E01 - O Retorno" → "O Retorno". Sem título próprio ("A Série S01E01"), devolve null.
+ */
+export function episodeTitle(name: string, seriesTitle: string): string | null {
+  let rest = name.trim();
+  for (const pattern of EPISODE_PATTERNS) {
+    const m = pattern.exec(rest);
+    if (m) {
+      rest = rest.slice(m.index + m[0].length);
+      break;
+    }
+  }
+  rest = rest.replace(EDGE_SEPARATORS, '').trim();
+  const series = seriesTitle.trim();
+  if (series && rest.toLocaleLowerCase().startsWith(series.toLocaleLowerCase())) rest = rest.slice(series.length).replace(EDGE_SEPARATORS, '').trim();
+  return rest || null;
+}
+
 export function extractYear(name: string): number | undefined {
   const m = YEAR_BRACKET.exec(name) ?? YEAR_TRAILING.exec(name);
   return m ? Number(m[1]) : undefined;

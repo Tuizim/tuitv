@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.drawBehind
@@ -380,6 +381,75 @@ fun ListRow(
             if (trailing != null) {
                 Spacer(Modifier.width(12.dp))
                 Text(trailing, style = MaterialTheme.typography.bodyMedium, color = secondary, maxLines = 1)
+            }
+        }
+    }
+}
+
+/**
+ * Cartão de episódio no estilo Netflix: número, miniatura 16:9 (com o progresso), título próprio do episódio,
+ * duração e sinopse, quando a lista informa. Mesmo desenho da Web e da Samsung.
+ */
+@Composable
+fun EpisodeCard(
+    number: Int,
+    title: String,
+    image: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    duration: String? = null,
+    synopsis: String? = null,
+    watched: Boolean = false,
+    progress: Float? = null,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val compact = device().compact
+    val secondary = if (focused) TuiColors.Navy.copy(alpha = 0.72f) else TuiColors.Muted
+    Surface(
+        onClick = onClick,
+        interactionSource = interaction,
+        modifier = modifier.fillMaxWidth().tapToClick(interaction, onClick = onClick),
+        shape = ClickableSurfaceDefaults.shape(RowShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = TuiColors.White,
+            focusedContainerColor = TuiColors.White,
+            focusedContentColor = TuiColors.Navy,
+            pressedContainerColor = TuiColors.White.copy(alpha = 0.85f),
+            pressedContentColor = TuiColors.Navy,
+        ),
+        border = ClickableSurfaceDefaults.border(border = Border.None, focusedBorder = Border.None, pressedBorder = Border.None),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f, pressedScale = 0.98f),
+    ) {
+        Row(Modifier.padding(if (compact) 8.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!compact) {
+                Text(if (number > 0) "$number" else "•", style = MaterialTheme.typography.headlineSmall, color = secondary, modifier = Modifier.width(40.dp))
+            }
+            Box(Modifier.width(if (compact) 128.dp else 208.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(TuiColors.Line)) {
+                RemoteImage(image, title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                if (progress != null) ProgressLine(progress, Modifier.align(Alignment.BottomCenter), height = 4.dp, color = TuiColors.Danger, track = Color.Black.copy(alpha = 0.6f))
+            }
+            Spacer(Modifier.width(if (compact) 12.dp else 20.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        (if (compact && number > 0) "$number. " else "") + title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (watched && !focused) TuiColors.Muted else Color.Unspecified,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (duration != null) {
+                        Spacer(Modifier.width(12.dp))
+                        Text(duration, style = MaterialTheme.typography.bodyMedium, color = secondary, maxLines = 1)
+                    }
+                }
+                if (watched) Text("Assistido", style = MaterialTheme.typography.labelMedium, color = if (focused) TuiColors.Navy else TuiColors.Success)
+                if (!synopsis.isNullOrBlank()) {
+                    Text(synopsis, style = MaterialTheme.typography.bodyMedium, color = secondary, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }

@@ -44,6 +44,26 @@ fun matchEpisode(name: String): EpisodeMatch? {
     return null
 }
 
+private val EDGE_SEPARATORS = Regex("^[\\s._\\-|:·–—)\\]]+|[\\s._\\-|:·–—(\\[]+$")
+
+/**
+ * Título próprio do episódio, sem o nome da série nem a marcação (S01E02, 1x02...), como nos cartões da Netflix:
+ * "A Série S02 E01 - O Retorno" → "O Retorno". Sem título próprio ("A Série S01E01"), devolve null.
+ * Mesmo comportamento de episodeTitle em web/packages/business-rules/src/classify.ts.
+ */
+fun episodeTitle(name: String, seriesTitle: String): String? {
+    var rest = name.jsTrim()
+    for (pattern in EPISODE_PATTERNS) {
+        val m = pattern.find(rest) ?: continue
+        rest = rest.substring(m.range.last + 1)
+        break
+    }
+    rest = EDGE_SEPARATORS.replace(rest, "").jsTrim()
+    val series = seriesTitle.jsTrim()
+    if (series.isNotEmpty() && rest.lowercase().startsWith(series.lowercase())) rest = EDGE_SEPARATORS.replace(rest.substring(series.length), "").jsTrim()
+    return rest.ifEmpty { null }
+}
+
 fun extractYear(name: String): Int? = (YEAR_BRACKET.find(name) ?: YEAR_TRAILING.find(name))?.groupValues?.get(1)?.toInt()
 
 private fun explicitKind(attrs: Map<String, String>): ContentKind? =

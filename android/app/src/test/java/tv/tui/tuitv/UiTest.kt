@@ -175,9 +175,9 @@ class UiTest {
         assertTrue(compose.onAllNodesWithText("S01E0", substring = true).fetchSemanticsNodes().isEmpty())
         assertEquals(1, compose.onAllNodesWithText(Txt.episodeLabel(1, 2), substring = true).fetchSemanticsNodes().size)
         shot("16-inicio-continuar")
-        // OK no cartão (primeiro da primeira fileira) abre o episódio mais adiante já assistido.
+        // OK no cartão (primeiro da primeira fileira) abre a página da série, com o botão no episódio mais adiante.
         press(NativeKeyEvent.KEYCODE_DPAD_CENTER)
-        waitFor("A Série S01E02", substring = true)
+        waitFor("Continuar " + Txt.episodeLabel(1, 2))
     }
 
     @Test

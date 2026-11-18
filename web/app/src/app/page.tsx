@@ -9,7 +9,7 @@ import { Thumb } from '@/components/Thumb';
 import { AddSourceDialog } from '@/components/dialogs';
 import { Logo } from '@/components/Logo';
 import { Button, Notice, cx } from '@/components/ui';
-import { itemHref, seriesContinueHref, seriesHref, useRemoteConnection, useRemoteGroup } from '@/lib/hooks';
+import { itemHref, seriesContinueHref, seriesHref, useRemoteConnection, useRemoteGroup, watchHref } from '@/lib/hooks';
 import { importErrorText, useT } from '@/lib/i18n';
 import { useMovieInfo, useSeriesInfo } from '@/lib/meta';
 import { hasRemote, useResolver, useStore } from '@/lib/store';
@@ -103,14 +103,16 @@ function Dashboard({ onAdd }: { onAdd: () => void }) {
           key: entry.seriesId,
           title: entry.seriesTitle ?? series?.title ?? entry.name,
           image: entry.seriesLogo ?? series?.logo ?? entry.logo,
-          href: seriesContinueHref(entry.seriesId),
+          // Cartão abre a página da série (como os filmes abrem a ficha); o destaque toca direto.
+          href: seriesHref(entry.seriesId),
+          play: seriesContinueHref(entry.seriesId),
           progress,
           episode: entry.season || entry.episode ? { season: entry.season ?? 0, episode: entry.episode ?? 0 } : undefined,
           series,
         });
       } else {
         const item = resolve.item(entry.itemId);
-        if (item) resume.push({ key: item.id, title: item.name, image: item.logo, href: itemHref(item), progress, item });
+        if (item) resume.push({ key: item.id, title: item.name, image: item.logo, href: itemHref(item), play: watchHref(item), progress, item });
       }
     }
     return { resume, lastChannel };
@@ -232,7 +234,10 @@ interface Resume {
   key: string;
   title: string;
   image?: string;
+  /** Página do item (cartão da fileira). */
   href: string;
+  /** Continuar direto no player (botão do destaque). */
+  play: string;
   progress: number;
   item?: MediaItem;
   series?: SeriesGroup;
@@ -244,10 +249,10 @@ function Hero({ resume, lastChannel }: { resume?: Resume; lastChannel?: MediaIte
   const lib = useStore((s) => s.lib);
 
   const featured = useMemo(() => {
-    if (resume?.item) return { label: t('Continuar assistindo'), title: resume.title, image: resume.image, href: resume.href, meta: [resume.item.year, resume.item.group], item: resume.item };
+    if (resume?.item) return { label: t('Continuar assistindo'), title: resume.title, image: resume.image, href: resume.play, meta: [resume.item.year, resume.item.group], item: resume.item };
     if (resume) {
       const episode = resume.episode && t('T{s} E{e}', { s: resume.episode.season, e: resume.episode.episode });
-      return { label: t('Continuar assistindo'), title: resume.title, image: resume.image, href: resume.href, meta: [episode, resume.series?.year, resume.series?.group], ...(resume.series ? { series: resume.series } : {}) };
+      return { label: t('Continuar assistindo'), title: resume.title, image: resume.image, href: resume.play, meta: [episode, resume.series?.year, resume.series?.group], ...(resume.series ? { series: resume.series } : {}) };
     }
     const day = Math.floor(Date.now() / 86_400_000);
     const movies = lib.movies.filter((m) => m.logo).slice(0, 400);

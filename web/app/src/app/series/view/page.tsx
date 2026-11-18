@@ -4,14 +4,16 @@ import { Check, CheckCheck, Clapperboard, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
-import { continueEpisode } from '@tuitv/business-rules';
+import { continueEpisode, episodeTitle } from '@tuitv/business-rules';
+import type { MediaItem } from '@tuitv/shared-models';
+import { AmbientBackdrop } from '@/components/AmbientBackdrop';
 import { FavoriteButton } from '@/components/cards';
 import { Synopsis } from '@/components/Synopsis';
 import { Thumb } from '@/components/Thumb';
 import { Chip, Empty, IconButton, cx } from '@/components/ui';
 import { RemoteStatus } from '@/components/Catalog';
 import { itemHref, useRemoteSeries } from '@/lib/hooks';
-import { useT } from '@/lib/i18n';
+import { formatDuration, useT } from '@/lib/i18n';
 import { useSeriesInfo } from '@/lib/meta';
 import { useResolver, useStore } from '@/lib/store';
 
@@ -60,78 +62,130 @@ function SeriesView() {
   const allWatched = season.episodes.every((e) => historyById.get(e.id)?.completed);
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <header className="mb-6 flex gap-5">
-        <Thumb src={series.logo} name={series.title} fit="cover" className="aspect-[2/3] w-28 shrink-0 rounded-xl border border-line text-2xl sm:w-40" />
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">{series.title}</h1>
-          <p className="mt-1 text-sm text-muted">
-            {[series.year, series.group, t('{n} temporadas', { n: series.seasons.length }), t('{n} episódios', { n: series.episodeCount })].filter(Boolean).join(' · ')}
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {upNext && (
-              <Link href={itemHref(upNext)} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-ink hover:brightness-110">
-                <Play className="size-4" fill="currentColor" />
-                {upNext.series && upNext.series.season > 0
-                  ? t('Assistir T{s} E{e}', { s: upNext.series.season, e: upNext.series.episode })
-                  : t('Assistir')}
-              </Link>
-            )}
-            <FavoriteButton id={series.id} kind="series" playlistId={series.playlistId} withLabel />
+    // Fundo como na ficha do filme: a capa da série preenche a tela, desfocada e escurecida.
+    <div className="relative -mx-4 -mt-20 min-h-screen overflow-hidden lg:-mx-12" data-testid="series-page">
+      <AmbientBackdrop src={info?.backdrop ?? series.logo} />
+      <div className="relative mx-auto max-w-5xl px-4 pt-24 pb-12 lg:px-12">
+        <header className="mb-8 flex gap-5 sm:gap-8">
+          <Thumb src={series.logo} name={series.title} fit="cover" className="aspect-[2/3] w-28 shrink-0 rounded-xl shadow-2xl shadow-black/60 text-2xl sm:w-44" />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-extrabold tracking-tight sm:text-4xl">{series.title}</h1>
+            <p className="mt-2 text-sm text-muted sm:text-base">
+              {[series.year, series.group, t('{n} temporadas', { n: series.seasons.length }), t('{n} episódios', { n: series.episodeCount })].filter(Boolean).join(' · ')}
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {upNext && (
+                <Link href={itemHref(upNext)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-accent px-5 text-sm font-semibold text-accent-ink hover:brightness-110">
+                  <Play className="size-4" fill="currentColor" />
+                  {upNext.series && upNext.series.season > 0
+                    ? t('Assistir T{s} E{e}', { s: upNext.series.season, e: upNext.series.episode })
+                    : t('Assistir')}
+                </Link>
+              )}
+              <FavoriteButton id={series.id} kind="series" playlistId={series.playlistId} withLabel />
+            </div>
+            <Synopsis info={info} />
           </div>
-          <Synopsis info={info} />
-        </div>
-      </header>
+        </header>
 
-      <div className="mb-3 flex items-center gap-2">
-        <div className="no-scrollbar flex flex-1 gap-2 overflow-x-auto p-0.5">
-          {series.seasons.map((s, index) => (
-            <Chip key={s.season} active={s === season} onClick={() => setSeasonIndex(index)}>
-              {seasonLabel(s.season)}
-            </Chip>
+        <div className="mb-3 flex items-center gap-2">
+          <div className="no-scrollbar flex flex-1 gap-2 overflow-x-auto p-0.5">
+            {series.seasons.map((s, index) => (
+              <Chip key={s.season} active={s === season} onClick={() => setSeasonIndex(index)}>
+                {seasonLabel(s.season)}
+              </Chip>
+            ))}
+          </div>
+          <IconButton
+            label={allWatched ? t('Marcar temporada como não assistida') : t('Marcar temporada como assistida')}
+            onClick={() => season.episodes.forEach((e) => setWatched(e, !allWatched))}
+            active={allWatched}
+          >
+            <CheckCheck className="size-5" />
+          </IconButton>
+        </div>
+
+        <ul className="flex flex-col gap-1" data-testid="episodes">
+          {season.episodes.map((episode) => (
+            <EpisodeCard
+              key={episode.id}
+              episode={episode}
+              seriesTitle={series.title}
+              fallbackImage={series.logo}
+              entry={historyById.get(episode.id)}
+              onWatched={(watched) => setWatched(episode, watched)}
+            />
           ))}
-        </div>
-        <IconButton
-          label={allWatched ? t('Marcar temporada como não assistida') : t('Marcar temporada como assistida')}
-          onClick={() => season.episodes.forEach((e) => setWatched(e, !allWatched))}
-          active={allWatched}
-        >
-          <CheckCheck className="size-5" />
-        </IconButton>
+        </ul>
       </div>
-
-      <ul className="overflow-hidden rounded-xl border border-line bg-surface">
-        {season.episodes.map((episode) => {
-          const entry = historyById.get(episode.id);
-          const watched = !!entry?.completed;
-          const progress = entry && !watched && entry.duration > 0 ? entry.position / entry.duration : 0;
-          return (
-            <li key={episode.id} className="flex items-center gap-1 border-b border-line/60 pr-2 last:border-0">
-              <Link href={itemHref(episode)} className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 -outline-offset-2 hover:bg-surface-2">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-bg text-sm font-bold tabular-nums text-muted">
-                  {episode.series!.episode || '•'}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className={cx('block truncate text-sm font-medium', watched && 'text-muted')}>{episode.name}</span>
-                  {progress > 0 && (
-                    <span className="mt-1.5 block h-1 w-40 max-w-full overflow-hidden rounded-full bg-bg">
-                      <span className="block h-full bg-accent" style={{ width: `${progress * 100}%` }} />
-                    </span>
-                  )}
-                </span>
-              </Link>
-              <IconButton
-                label={watched ? t('Marcar como não assistido') : t('Marcar como assistido')}
-                aria-pressed={watched}
-                onClick={() => setWatched(episode, !watched)}
-                className={watched ? 'text-success' : ''}
-              >
-                <Check className="size-5" />
-              </IconButton>
-            </li>
-          );
-        })}
-      </ul>
     </div>
+  );
+}
+
+/**
+ * Cartão de episódio no estilo Netflix: número, miniatura 16:9 (com o progresso), título próprio do episódio,
+ * duração e sinopse, quando a lista informa. Sem miniatura do episódio, usa a capa da série.
+ */
+function EpisodeCard({
+  episode,
+  seriesTitle,
+  fallbackImage,
+  entry,
+  onWatched,
+}: {
+  episode: MediaItem;
+  seriesTitle: string;
+  fallbackImage?: string;
+  entry?: { completed: boolean; position: number; duration: number };
+  onWatched: (watched: boolean) => void;
+}) {
+  const t = useT();
+  const number = episode.series?.episode ?? 0;
+  const title = episodeTitle(episode.name, seriesTitle) ?? (number ? t('Episódio {n}', { n: number }) : episode.name);
+  const watched = !!entry?.completed;
+  const progress = entry && !watched && entry.duration > 0 ? entry.position / entry.duration : 0;
+  const duration = episode.duration ? formatDuration(episode.duration, t) : null;
+  return (
+    <li className="flex items-center gap-1 rounded-xl pr-2 hover:bg-white/5">
+      <Link
+        href={itemHref(episode)}
+        aria-label={`${number ? `${number}. ` : ''}${title}`}
+        className="group flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 -outline-offset-2 sm:gap-4 sm:p-3"
+        data-episode={episode.id}
+      >
+        <span className="hidden w-7 shrink-0 text-center text-2xl font-bold text-muted tabular-nums sm:block">{number || '•'}</span>
+        <span className="relative w-32 shrink-0 overflow-hidden rounded-lg bg-surface ring-1 ring-line transition group-hover:ring-2 group-hover:ring-accent group-focus-visible:ring-2 group-focus-visible:ring-accent sm:w-48">
+          <Thumb src={episode.logo ?? fallbackImage} name={title} fit="cover" className="aspect-video w-full text-lg" />
+          <span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+            <span className="flex size-10 items-center justify-center rounded-full border-2 border-white bg-black/40">
+              <Play className="size-5 text-white" fill="currentColor" />
+            </span>
+          </span>
+          {progress > 0 && (
+            <span className="absolute inset-x-0 bottom-0 h-1 bg-black/60">
+              <span className="block h-full bg-danger" style={{ width: `${Math.min(100, progress * 100)}%` }} />
+            </span>
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline justify-between gap-3">
+            <span className={cx('line-clamp-2 text-sm font-semibold sm:text-base', watched && 'text-muted')}>
+              <span className="sm:hidden">{number ? `${number}. ` : ''}</span>
+              {title}
+            </span>
+            {duration && <span className="shrink-0 text-xs text-muted sm:text-sm">{duration}</span>}
+          </span>
+          {episode.description && <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted sm:line-clamp-3 sm:text-sm">{episode.description}</span>}
+        </span>
+      </Link>
+      <IconButton
+        label={watched ? t('Marcar como não assistido') : t('Marcar como assistido')}
+        aria-pressed={watched}
+        onClick={() => onWatched(!watched)}
+        className={watched ? 'text-success' : ''}
+      >
+        <Check className="size-5" />
+      </IconButton>
+    </li>
   );
 }

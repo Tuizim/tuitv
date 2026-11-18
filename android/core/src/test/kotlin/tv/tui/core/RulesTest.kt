@@ -28,6 +28,17 @@ class RulesTest {
     }
 
     @Test
+    fun `titulo do episodio sem o nome da serie nem a marcacao`() {
+        assertEquals("O Retorno", episodeTitle("A Série S02 E01 - O Retorno", "A Série"))
+        assertNull(episodeTitle("A Série S01E01", "A Série"))
+        assertEquals("Piloto", episodeTitle("A Série - S01E02 - Piloto", "A Série"))
+        assertEquals("A Festa", episodeTitle("Risadas 1x05: A Festa", "Risadas"))
+        assertNull(episodeTitle("T1 E2", "Qualquer"))
+        assertEquals("O Começo", episodeTitle("O Começo", "Outra Série"))
+        assertEquals("O Começo", episodeTitle("Outra Série - O Começo", "Outra Série"))
+    }
+
+    @Test
     fun `id estavel quando apenas o endereco muda`() {
         val before = ItemBuilder("p").add(parseM3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"x\" group-title=\"G\",Canal X\nhttp://a.b/1?token=AAA\n").entries)
         val after = ItemBuilder("p").add(parseM3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"x\" group-title=\"Outro\",Canal X\nhttp://c.d/9?token=BBB\n").entries)

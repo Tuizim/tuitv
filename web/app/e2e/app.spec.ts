@@ -253,7 +253,13 @@ test('login: categorias, séries e favoritos vêm do servidor sob demanda', asyn
   await page.getByRole('link', { name: /Vale Escuro/ }).click();
   await expect(page.getByRole('heading', { name: 'Vale Escuro' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Temporada 2' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /S01E02 - Neblina/ })).toBeVisible();
+  // Cartões de episódio como na Netflix: título próprio (sem o nome da série), duração, sinopse e miniatura.
+  await expect(page.getByRole('link', { name: '2. Neblina' })).toBeVisible();
+  const first = page.getByRole('link', { name: '1. Chegada' });
+  await expect(first).toContainText('40 min');
+  await expect(first).toContainText('Uma família chega ao vale.');
+  await expect(first.locator('img')).toHaveAttribute('src', /thumb-7001\.png/);
+  await expect(page.getByTestId('series-page').getByTestId('ambient-backdrop')).toBeAttached();
   expect(calls).toContain('get_series_info');
   await page.getByRole('button', { name: 'Adicionar aos favoritos' }).click();
   await flushStorage(page);
@@ -303,7 +309,7 @@ test('filmes, séries, temporadas, episódios assistidos e busca global', async 
   await expect(page.getByRole('heading', { name: 'A Série' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Temporada 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Temporada 2' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /A Série S01E02/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: '2. Episódio 2' })).toBeVisible();
 
   // Marca o primeiro episódio como assistido: o próximo a assistir passa a ser o E2.
   await page.getByRole('button', { name: 'Marcar como assistido' }).first().click();
@@ -312,7 +318,7 @@ test('filmes, séries, temporadas, episódios assistidos e busca global', async 
   await expect(page.getByRole('link', { name: 'Assistir T1 E2' })).toBeVisible();
 
   // Página de reprodução
-  await page.getByRole('link', { name: /A Série S01E02/ }).click();
+  await page.getByRole('link', { name: '2. Episódio 2' }).click();
   await expect(page.getByTestId('player')).toBeVisible();
   await expect(page.getByText('Temporada 1 · Episódio 2').first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Próximo episódio' })).toBeVisible();
@@ -332,9 +338,10 @@ test('filmes, séries, temporadas, episódios assistidos e busca global', async 
   const row = page.locator('section', { has: page.getByRole('heading', { name: 'Continuar assistindo' }) });
   await expect(row.getByRole('link', { name: /A Série/ })).toHaveCount(1);
   await expect(row.getByRole('link', { name: /S01E0/ })).toHaveCount(0);
+  // Abrir o cartão leva à página da série (como os filmes levam à ficha), já com o botão no episódio certo.
   await row.getByRole('link', { name: /A Série/ }).click();
-  await expect(page).toHaveURL(/\/watch\/?\?id=/);
-  await expect(page.getByText('Temporada 1 · Episódio 2').first()).toBeVisible();
+  await expect(page).toHaveURL(/\/series\/view\/?\?id=/);
+  await expect(page.getByRole('link', { name: 'Assistir T1 E2' })).toBeVisible();
 
   // Busca global, sem acentos
   await search(page, 'serie');
