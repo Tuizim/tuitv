@@ -16,11 +16,11 @@ Fora deste escopo agora: aplicativo de celular/tablet Android (será uma etapa p
 
 | Tema | Proposta | Motivo |
 | --- | --- | --- |
-| Linguagem / UI | Kotlin + Jetpack Compose for TV (`androidx.tv`) | Foco por D-pad e temas próprios para TV; mesma linguagem do `kotlin-core` |
+| Linguagem / UI | Kotlin + Jetpack Compose for TV (`androidx.tv`) | Foco por D-pad e temas próprios para TV; mesma linguagem do `android/core` |
 | Reprodução | Media3 / ExoPlayer (módulos HLS e TS) | Equivalente ao HLS.js + mpegts.js da Web, com decodificação por hardware |
-| Persistência | Room, com o mesmo modelo de `packages/shared-models` | Substitui o IndexedDB; permite migrar backups da Web |
+| Persistência | Room, com o mesmo modelo de `web/packages/shared-models` | Substitui o IndexedDB; permite migrar backups da Web |
 | Cifragem de endereços | AES-GCM com chave no Android Keystore | Mesmo critério da Web (`lib/db.ts`) |
-| Regras | `packages/kotlin-core` como dependência Gradle local | Já testado contra os mesmos arquivos de referência do TypeScript |
+| Regras | `android/core` como dependência Gradle local | Já testado contra os mesmos arquivos de referência do TypeScript |
 | Injeção de dependência | Manual (sem Hilt no início) | Menos peças para um app pequeno; revisitar se crescer |
 | Tarefas em segundo plano | WorkManager | Atualização automática de listas e guias (padrão de 1 dia, como na Web) |
 | `minSdk` | **[decidir]** proposta: 24 | Cobre a maioria dos Fire TV e TVs Android atuais. Fire OS 5 (API 22) ficaria de fora; confirmar se algum aparelho do usuário precisa de suporte |
@@ -31,19 +31,19 @@ Fora deste escopo agora: aplicativo de celular/tablet Android (será uma etapa p
 ```
 apps/
   android-tv/            Aplicativo Android TV (Compose for TV, Media3, Room)
-packages/
+web/packages/
   kotlin-core/           (já existe) regras e parser em Kotlin/JVM puro
 ```
 
 Se o app de celular entrar depois, cria-se `apps/android-mobile/` e um módulo `android-common` (Room, repositórios, player) compartilhado. Não criar agora.
 
-O `settings.gradle.kts` da raiz já inclui `kotlin-core`; o módulo `:android-tv` é adicionado ali.
+O `settings.gradle.kts` da raiz já inclui `android/core`; o módulo `:android-tv` é adicionado ali.
 
 ## 4. Lacunas conhecidas entre Web e Kotlin
 
-Revisar antes de cada etapa, porque o `kotlin-core` não cobre tudo o que a Web faz:
+Revisar antes de cada etapa, porque o `android/core` não cobre tudo o que a Web faz:
 
-- **EPG XMLTV** (`packages/business-rules/src/epg.ts`): não há equivalente em Kotlin. Precisa de porte e de testes com arquivos de referência.
+- **EPG XMLTV** (`web/packages/business-rules/src/epg.ts`): não há equivalente em Kotlin. Precisa de porte e de testes com arquivos de referência.
 - **Pesquisa e normalização** (`searchIn` em `business-rules`): conferir o que já está em `Library.kt`.
 - **Controle parental** (PIN, classificação): conferir se há equivalente em Kotlin.
 - **Player**: não há porte; a Web usa HLS.js/mpegts.js, o app usa Media3. Os formatos e as falhas precisam de nova tabela de comportamento.
@@ -69,9 +69,9 @@ Revisar antes de cada etapa, porque o `kotlin-core` não cobre tudo o que a Web 
 
 | Fase | Entrega | Critério de saída |
 | --- | --- | --- |
-| **F0 — Preparação** | SDK instalado (platform, build-tools, emulador Android TV), decisões da seção 2, lista de aparelhos de teste | `./gradlew :kotlin-core:test` passando e app vazio abrindo no emulador |
+| **F0 — Preparação** | SDK instalado (platform, build-tools, emulador Android TV), decisões da seção 2, lista de aparelhos de teste | `./gradlew :core:test` passando e app vazio abrindo no emulador |
 | **F1 — Spike de reprodução** | Tela única com um canal HLS e um TS, D-pad e canal +/− | Reproduz HLS e TS em emulador e em um aparelho real (Fire TV ou Android TV) |
-| **F2 — Dados e importação** | Room, importação por URL e arquivo com `kotlin-core`, cifragem, favoritos e histórico | Importar a mesma lista duas vezes não duplica itens; favoritos sobrevivem |
+| **F2 — Dados e importação** | Room, importação por URL e arquivo com `android/core`, cifragem, favoritos e histórico | Importar a mesma lista duas vezes não duplica itens; favoritos sobrevivem |
 | **F3 — Interface TV** | Início, TV ao vivo, filmes, séries, busca, favoritos, histórico, configurações | Toda a navegação funciona só com o controle remoto |
 | **F4 — Recursos P1** | EPG (porte), múltiplas listas, controle parental, backup, atualização automática | Backup gerado pela Web restaura no app; guia exibe programação |
 | **F5 — Publicação** | Build assinado, ícone e banner de TV, política de privacidade, ficha para Play e Amazon | Instalação limpa por APK e pela loja em pelo menos um Fire TV e uma Android TV |
@@ -80,7 +80,7 @@ Cada fase termina com testes automatizados e um teste manual no aparelho real.
 
 ## 8. Testes
 
-- **Unitários:** `kotlin-core` (já existe, com fixtures compartilhadas).
+- **Unitários:** `android/core` (já existe, com fixtures compartilhadas).
 - **Instrumentados:** Room e importação, em emulador Android TV (imagem de sistema x86_64).
 - **Manuais:** matriz em aparelho real — pelo menos um Fire TV Stick, uma Android TV (ou Google TV) e, se possível, um Fire TV com Fire OS recente. Anotar versão de Fire OS / Android, resolução e o resultado de cada formato de lista.
 - **Desempenho:** listas grandes (dezenas de milhares de itens) com tempo de importação e uso de memória medidos.
@@ -108,11 +108,11 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" \
 | Pergunta | Decisão | Motivo |
 | --- | --- | --- |
 | `minSdk` | **23** (Android 6 / Fire OS 6+) | Mínimo das bibliotecas atuais; cobre Fire TV Stick 4K e posteriores. Fire OS 5 (API 22) fica de fora |
-| `applicationId` | **`tv.tui.tuitv`** (`tv.tui.tuitv.debug` no build de depuração) | Mesmo prefixo do `kotlin-core`; não muda após a primeira publicação |
+| `applicationId` | **`tv.tui.tuitv`** (`tv.tui.tuitv.debug` no build de depuração) | Mesmo prefixo do `android/core`; não muda após a primeira publicação |
 | Publicação | **APK** (ADB ou Downloader) nesta etapa | Play e Amazon exigem chave definitiva, ficha e política de privacidade publicadas |
 | `http://` | **Permitido** | Listas e transmissões IPTV usam http; no app nativo não há conteúdo misto. A validação de rede local continua (configurável) |
 | Assinatura | Chave definitiva via `scripts/create-keystore.sh`; sem ela, chave de depuração local | Permite instalar já; a chave definitiva precisa ser guardada para atualizações |
-| Celular/tablet | Fora desta etapa | Mesma base (`kotlin-core` e camada de dados) |
+| Celular/tablet | Fora desta etapa | Mesma base (`android/core` e camada de dados) |
 
 ## 12. Estado das fases
 

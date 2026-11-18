@@ -36,8 +36,8 @@ git push origin v0.2.0
 - Se algum teste falhar, nada é publicado. Para tentar de novo com a mesma versão:
   `git push --delete origin v0.2.0 && git tag -f v0.2.0 && git push origin v0.2.0`.
 
-Builds locais sem tag usam a versão 0.1.0. Para outra: `./gradlew -Ptuitv.version=1.2.3 :android-tv:assembleRelease`
-e `TUITV_VERSION=1.2.3 pnpm build:tizen`.
+Builds locais sem tag usam a versão 0.1.0. Para outra: `cd android && ./gradlew -Ptuitv.version=1.2.3 :app:assembleRelease`
+e `TUITV_VERSION=1.2.3 pnpm build:samsung`.
 
 ## Chave de assinatura do Android
 
@@ -45,7 +45,7 @@ Todas as versões do APK precisam ser assinadas com **a mesma chave**; com outra
 e só instala depois de desinstalar (perdendo os dados). A chave definitiva fica fora do repositório:
 
 - `~/.tuitv/tuitv-release.jks` (alias `tuitv`) e a senha em `~/.tuitv/tuitv-release.password`;
-- `apps/android-tv/keystore.properties` aponta para ela nos builds locais.
+- `android/app/keystore.properties` aponta para ela nos builds locais.
 
 **Faça uma cópia de segurança desses dois arquivos** (gerenciador de senhas, cofre). Perder a chave significa
 que nenhuma instalação existente poderá ser atualizada.

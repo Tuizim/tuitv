@@ -48,7 +48,7 @@ jobs:
       - run: pnpm test
 
       - name: Pacote Tizen
-        run: pnpm build:tizen
+        run: pnpm build:samsung
         env:
           TUITV_VERSION: ${{ steps.version.outputs.version }}
 
@@ -72,7 +72,7 @@ jobs:
             exit 1
           fi
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/tuitv-release.jks"
-          cat > apps/android-tv/keystore.properties <<EOF
+          cat > android/app/keystore.properties <<EOF
           storeFile=$RUNNER_TEMP/tuitv-release.jks
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=${KEY_ALIAS:-tuitv}
@@ -80,16 +80,17 @@ jobs:
           EOF
 
       - name: Testes e APK
+        working-directory: android
         run: >
           ./gradlew --no-configuration-cache -Ptuitv.version=${{ steps.version.outputs.version }}
-          :kotlin-core:test :android-tv:testDebugUnitTest :android-tv:assembleRelease
+          :core:test :app:testDebugUnitTest :app:assembleRelease
 
       # ---------- Release ----------
       - name: Arquivos
         run: |
           mkdir -p release
-          cp apps/android-tv/build/outputs/apk/release/android-tv-release.apk release/TuiTV-AndroidTV.apk
-          cp apps/tizen/build/TuiTV-sem-assinatura.wgt release/TuiTV-Tizen-sem-assinatura.wgt
+          cp android/app/build/outputs/apk/release/app-release.apk release/TuiTV-AndroidTV.apk
+          cp samsung/build/TuiTV-sem-assinatura.wgt release/TuiTV-Tizen-sem-assinatura.wgt
           cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
 
       - name: Publicar

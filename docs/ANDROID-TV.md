@@ -5,24 +5,24 @@ Um único APK atende Android TV, Google TV e Fire TV (Fire OS 6 ou mais recente,
 ## 1. Gerar o APK
 
 Requisitos: JDK 17 (com `javac`) e Android SDK com `platforms;android-37.0` e `build-tools;37.0.0`
-(`ANDROID_HOME` apontando para o SDK). O Gradle escolhe o JDK 17 sozinho (`gradle/gradle-daemon-jvm.properties`).
+(`ANDROID_HOME` apontando para o SDK). O Gradle escolhe o JDK 17 sozinho (`android/gradle/gradle-daemon-jvm.properties`).
 
 ```bash
-./gradlew :android-tv:assembleRelease
-# APK: apps/android-tv/build/outputs/apk/release/android-tv-release.apk  (~2,7 MB)
+cd android && ./gradlew :app:assembleRelease
+# APK: android/app/build/outputs/apk/release/app-release.apk  (~2,7 MB)
 ```
 
 A chave definitiva já foi criada em `~/.tuitv/` e é a usada nas releases do GitHub (ver [RELEASES.md](RELEASES.md)).
 
-Sem `apps/android-tv/keystore.properties`, o APK de release é assinado com a **chave de depuração desta máquina**.
+Sem `android/app/keystore.properties`, o APK de release é assinado com a **chave de depuração desta máquina**.
 Isso basta para instalar por APK; atualizações futuras precisam ser assinadas pela mesma chave
 (a de depuração fica em `~/.android/debug.keystore`).
 
 Para uma chave definitiva (obrigatória para lojas):
 
 ```bash
-apps/android-tv/scripts/create-keystore.sh      # cria ~/.tuitv/tuitv-release.jks e keystore.properties
-./gradlew :android-tv:assembleRelease
+android/app/scripts/create-keystore.sh      # cria ~/.tuitv/tuitv-release.jks e keystore.properties
+cd android && ./gradlew :app:assembleRelease
 ```
 
 Guarde o `.jks` e a senha fora do repositório. Perder a chave impede atualizar quem já instalou.
@@ -42,7 +42,7 @@ Os nomes dos menus variam um pouco conforme o modelo e a versão do Fire OS.
 
 ```bash
 adb connect 192.168.0.50:5555        # IP da Fire TV; aceite o pedido que aparece na TV
-adb install -r apps/android-tv/build/outputs/apk/release/android-tv-release.apk
+adb install -r android/app/build/outputs/apk/release/app-release.apk
 ```
 
 `adb` está em `$ANDROID_HOME/platform-tools`. No WSL, se a conexão falhar, use o `adb` do Windows
@@ -59,7 +59,7 @@ adb install -r apps/android-tv/build/outputs/apk/release/android-tv-release.apk
 1. **Opções de desenvolvedor:** Configurações → *Sistema* → *Sobre* → selecione *Build do Android TV OS* 7 vezes.
 2. Em *Opções do desenvolvedor*: ative **Depuração USB** (em alguns modelos, *Depuração pela rede* / ADB por rede).
 3. IP da TV: *Configurações* → *Rede e Internet* → sua rede.
-4. Pelo computador: `adb connect IP:5555` e `adb install -r android-tv-release.apk` (aceite o pedido na TV).
+4. Pelo computador: `adb connect IP:5555` e `adb install -r app-release.apk` (aceite o pedido na TV).
 
 Sem computador: instale um gerenciador de arquivos ou o Downloader pela Play Store, permita
 "fontes desconhecidas" para ele (*Configurações* → *Apps* → *Segurança e restrições*) e abra o APK.

@@ -4,8 +4,8 @@
 
 Monorepo com dois ecossistemas que compartilham regras e arquivos de referência:
 
-- **TypeScript** (pnpm + Turborepo): pacotes em `packages/*` consumidos direto do código-fonte pelo app `apps/web`.
-- **Kotlin** (Gradle): `packages/kotlin-core`, Kotlin/JVM puro, base dos aplicativos Android e Android TV.
+- **TypeScript** (pnpm + Turborepo): pacotes em `web/packages/*` consumidos direto do código-fonte pelo app `web/app`.
+- **Kotlin** (Gradle): `android/core`, Kotlin/JVM puro, base dos aplicativos Android e Android TV.
 
 Não existe servidor. O navegador baixa as listas diretamente das fontes do usuário e grava tudo no IndexedDB.
 
@@ -18,7 +18,7 @@ Hospedagem estática ──► Navegador (aplicação inteira) ──► Indexed
 ## Login do provedor (host, usuário e senha)
 
 Listas podem ser adicionadas por link M3U ou por login no formato Xtream Codes. `normalizeXtreamHost` +
-`xtreamPlaylistUrl` (TypeScript, `packages/validation`) e `Xtream` (Kotlin, `kotlin-core`) montam
+`xtreamPlaylistUrl` (TypeScript, `web/packages/validation`) e `Xtream` (Kotlin, `android/core`) montam
 `host/get.php?username=…&password=…&type=m3u_plus&output=ts`, que é guardado (cifrado) como o endereço da lista;
 `parseXtreamUrl` / `Xtream.parse` recuperam o login para exibição e edição. O guia `xmltv.php` do mesmo login é usado
 quando a lista não anuncia um guia (`url-tvg`): adicionado automaticamente na TV e oferecido na página do guia na Web.
@@ -40,7 +40,7 @@ na Web e na Samsung, um login **não é importado** (`Playlist.provider = 'xtrea
   favoritos (que guardam nome e capa) e histórico reabrem o conteúdo sem consultar o catálogo.
 - Servidor sem a API (404 ou resposta que não é JSON): o login volta a ser importado como lista M3U (`get.php`).
 - "Atualizar" numa lista antiga importada de um login a converte para consulta sob demanda e libera o armazenamento.
-- Android TV: mesmas regras em `kotlin-core` (`XtreamApi`: respostas do servidor e ids) e `data/RemoteCatalog.kt`
+- Android TV: mesmas regras em `android/core` (`XtreamApi`: respostas do servidor e ids) e `data/RemoteCatalog.kt`
   (rede e cache em memória); o `Library` junta o banco local e o catálogo remoto nas mesmas consultas por categoria.
   Banco na versão 2 (migração automática): `provider`/`expiresAt` nas listas e nome/capa nos favoritos.
 - Backups trazem `provider`, `account` e o `snapshot` dos favoritos nas duas plataformas: um login restaurado
@@ -91,21 +91,21 @@ Barra de navegação superior (cinco destinos principais + menu com os demais), 
 
 ## Equivalência entre plataformas
 
-`packages/m3u-parser/fixtures/*.m3u` são os arquivos de referência. O resultado canônico (`fixtures/expected/*.json`) é gerado pelo TypeScript (`pnpm fixtures:update`) e conferido tanto pelo Vitest quanto pelo JUnit do núcleo Kotlin. Um backup cifrado gerado pela Web (`fixtures/backup/`) também é restaurado pelo teste Kotlin e pelo app de TV.
+`web/packages/m3u-parser/fixtures/*.m3u` são os arquivos de referência. O resultado canônico (`fixtures/expected/*.json`) é gerado pelo TypeScript (`pnpm fixtures:update`) e conferido tanto pelo Vitest quanto pelo JUnit do núcleo Kotlin. Um backup cifrado gerado pela Web (`fixtures/backup/`) também é restaurado pelo teste Kotlin e pelo app de TV.
 
-O `kotlin-core` não usa `java.time`, `java.util.Base64` nem `SecretKeyFactory("PBKDF2WithHmacSHA256")`, que só existem no Android a partir da API 26: o PBKDF2 é implementado sobre `HmacSHA256` (`Crypto.kt`), com teste que compara o resultado ao da JVM. Assim o app roda em Fire OS 6 (API 25).
+O `android/core` não usa `java.time`, `java.util.Base64` nem `SecretKeyFactory("PBKDF2WithHmacSHA256")`, que só existem no Android a partir da API 26: o PBKDF2 é implementado sobre `HmacSHA256` (`Crypto.kt`), com teste que compara o resultado ao da JVM. Assim o app roda em Fire OS 6 (API 25).
 
-## Aplicativo Android TV / Fire TV (`apps/android-tv`)
+## Aplicativo Android TV / Fire TV (`android/app`)
 
 ```
 UI (Compose for TV)  ──►  Library (repositório)  ──►  Room (tuitv.db)
        │                        │                        └─ itens, listas, favoritos, histórico, guias
-       │                        ├─ Importer ──► kotlin-core (M3uParser, ItemBuilder, XmltvParser)
+       │                        ├─ Importer ──► android/core (M3uParser, ItemBuilder, XmltvParser)
        │                        └─ Net (OkHttp) ──► fontes do usuário
        └─ Player (Media3/ExoPlayer, OkHttp)
 ```
 
-- **Mesmas regras da Web:** parser, classificação, ids estáveis, busca, EPG, parental e backup vêm do `kotlin-core`.
+- **Mesmas regras da Web:** parser, classificação, ids estáveis, busca, EPG, parental e backup vêm do `android/core`.
 - **Importação:** leitura em pedaços (gzip e Windows-1252 detectados), lotes de 2.000 itens. Cada importação grava uma geração (`gen`); só depois do sucesso os itens de gerações anteriores são removidos — uma falha nunca apaga a biblioteca.
 - **Dados:** Room com consultas reativas (`Flow`); o filtro do controle parental é aplicado sobre os fluxos. Endereços de listas e guias ficam cifrados com AES-GCM e chave do Android Keystore (`SecureText`). Preferências em JSON no mesmo formato da Web.
 - **Player:** estratégias em ordem — detecção automática do Media3, HLS forçado e variante HLS do canal (`Playback.hlsVariant`) —, reconexão com espera crescente até 15 s, retomada de filmes/episódios e próximo episódio automático.
@@ -113,9 +113,9 @@ UI (Compose for TV)  ──►  Library (repositório)  ──►  Room (tuitv.d
 - **Sem seletor de arquivos (Fire TV):** toda importação e restauração de backup também funciona por endereço; o backup exportado vai para Downloads quando não há seletor.
 - **Tráfego http:** permitido (listas IPTV costumam usar http); não há a restrição de conteúdo misto do navegador, nem CORS.
 
-## Aplicativo Tizen (`apps/tizen`)
+## Aplicativo Tizen (`samsung`)
 
-Reaproveita as telas de `apps/web/src` sem alterá-las. O Vite troca `next/link` e `next/navigation` por um roteador por
+Reaproveita as telas de `web/app/src` sem alterá-las. O Vite troca `next/link` e `next/navigation` por um roteador por
 hash (o pacote `.wgt` abre como arquivo local, onde rotas por caminho não existem), e `src/remote.ts` acrescenta a
 navegação espacial e as teclas do controle Samsung, traduzidas para as teclas que o player Web já trata. O CSS do
 Tailwind v4 e o JavaScript são rebaixados e auditados para o Chromium 69 (Tizen 5.5). Detalhes em [TIZEN.md](TIZEN.md).

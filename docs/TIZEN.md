@@ -1,7 +1,7 @@
 # TuiTV para Smart TVs Samsung (Tizen)
 
-O aplicativo Tizen (`apps/tizen`) é a **mesma interface da aplicação Web**, empacotada como aplicativo de TV (`.wgt`).
-Não há uma segunda interface para manter: as telas vêm de `apps/web/src`.
+O aplicativo Tizen (`samsung`) é a **mesma interface da aplicação Web**, empacotada como aplicativo de TV (`.wgt`).
+Não há uma segunda interface para manter: as telas vêm de `web/app/src`.
 
 ## Como funciona
 
@@ -46,14 +46,14 @@ O build garante isso automaticamente:
 
 ```bash
 pnpm install
-pnpm build:tizen
+pnpm build:samsung
 ```
 
-- Sem certificado: `apps/tizen/build/TuiTV-sem-assinatura.wgt` (a TV **não** instala pacotes sem assinatura).
-- Com o Tizen Studio e um perfil de certificado: `apps/tizen/build/TuiTV.wgt` assinado:
+- Sem certificado: `samsung/build/TuiTV-sem-assinatura.wgt` (a TV **não** instala pacotes sem assinatura).
+- Com o Tizen Studio e um perfil de certificado: `samsung/build/TuiTV.wgt` assinado:
 
 ```bash
-TIZEN_PROFILE=TuiTV pnpm build:tizen      # nome do perfil criado no Certificate Manager
+TIZEN_PROFILE=TuiTV pnpm build:samsung      # nome do perfil criado no Certificate Manager
 # CLI fora do padrão (~/tizen-studio/tools/ide/bin/tizen)? Informe: TIZEN_CLI=/caminho/tizen
 ```
 
@@ -68,8 +68,8 @@ TIZEN_PROFILE=TuiTV pnpm build:tizen      # nome do perfil criado no Certificate
 5. **Gerar e instalar:**
 
 ```bash
-TIZEN_PROFILE=TuiTV pnpm build:tizen
-tizen install -n apps/tizen/build/TuiTV.wgt -t NOME_DO_APARELHO
+TIZEN_PROFILE=TuiTV pnpm build:samsung
+tizen install -n samsung/build/TuiTV.wgt -t NOME_DO_APARELHO
 tizen run -p TuiTVtizen.TuiTV -t NOME_DO_APARELHO
 ```
 
@@ -92,13 +92,13 @@ precisa passar pela *Samsung Seller Office* (loja Samsung Apps), que exige o cer
 ## Testes
 
 ```bash
-pnpm --filter @tuitv/tizen test     # compatibilidade do CSS (Vitest)
-pnpm build:tizen && pnpm test:tizen  # ponta a ponta (Playwright) sobre o pacote aberto via file://
+pnpm --filter @tuitv/samsung test     # compatibilidade do CSS (Vitest)
+pnpm build:samsung && pnpm test:samsung  # ponta a ponta (Playwright) sobre o pacote aberto via file://
 ```
 
 Os testes de ponta a ponta simulam a TV: pacote aberto de arquivo local, viewport 1280×720, API `tizen` falsa
 (registro de teclas e encerramento) e uso só de teclas — inclusive adicionar lista por login, abrir canal,
-trocar de canal com Canal −, Voltar e fechar o app. Capturas ficam em `apps/tizen/build/screenshots/`.
+trocar de canal com Canal −, Voltar e fechar o app. Capturas ficam em `samsung/build/screenshots/`.
 
 ## Limitações conhecidas
 

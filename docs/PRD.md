@@ -13,7 +13,7 @@ Plataforma independente, local-first e sem contas. Nenhuma função essencial de
 | RF-001 Inicialização (logotipo, preferências, último estado) | `components/AppShell.tsx` (Splash), `lib/store.ts` (`init`), último canal em `app/live` |
 | RF-002 Primeiro acesso | `app/page.tsx` (`Welcome`) |
 | RF-003 Importação por URL/arquivo e gerenciamento | `components/dialogs.tsx`, `lib/importer.ts`, `app/playlists` |
-| RF-004 Parser M3U/M3U8 | `packages/m3u-parser` (+ `packages/kotlin-core`) |
+| RF-004 Parser M3U/M3U8 | `web/packages/m3u-parser` (+ `android/core`) |
 | RF-005 TV ao vivo | `app/live`, `components/Player.tsx` |
 | RF-006 Filmes · RF-007 Séries | `app/movies`, `app/series`, `app/watch`, `business-rules/classify.ts` e `library.ts` |
 | RF-008 Favoritos | `app/favorites`, `components/cards.tsx` |
@@ -24,13 +24,13 @@ Plataforma independente, local-first e sem contas. Nenhuma função essencial de
 | RF-013 Configurações · RF-015 Privacidade | `app/settings` |
 | RF-014 Player (HTML5 + HLS.js) | `components/Player.tsx` |
 | §8 Armazenamento local (IndexedDB) e §8.3 Backup | `lib/db.ts`, `business-rules/backup.ts` |
-| §10 Segurança | `packages/validation`, CSP em `app/layout.tsx`, cifragem em `lib/db.ts` |
+| §10 Segurança | `web/packages/validation`, CSP em `app/layout.tsx`, cifragem em `lib/db.ts` |
 | §12.4 PWA | `public/manifest.webmanifest`, `scripts/sw.template.js` |
 
 ## Escopo
 
 - **P0** (identidade, splash, início, importação por URL/arquivo, parser, TV ao vivo, player, categorias, busca, favoritos, armazenamento local, sem conta): implementado na Web.
 - **P1** (filmes, séries, múltiplas listas, histórico, EPG, backup, controle parental, PWA): implementado na Web.
-- **Android TV / Fire TV**: P0 e P1 implementados em `apps/android-tv` (ver [ANDROID-TV.md](ANDROID-TV.md)); falta validação em aparelho real.
+- **Android TV / Fire TV**: P0 e P1 implementados em `android/app` (ver [ANDROID-TV.md](ANDROID-TV.md)); falta validação em aparelho real.
 - **Android (celular/tablet)**: pendente; reaproveitará o núcleo Kotlin.
 - **P2** (Samsung/LG, iOS): fora desta entrega.

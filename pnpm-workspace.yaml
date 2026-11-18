@@ -1,7 +1,7 @@
 packages:
-  - "apps/web"
-  - "apps/tizen"
-  - "packages/*"
+  - "web/app"
+  - "web/packages/*"
+  - "samsung"
 allowBuilds:
   sharp: true
   # O postinstall do core-js só imprime uma mensagem; não precisa rodar.

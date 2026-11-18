@@ -3,12 +3,12 @@
 | Camada | Ferramenta | Comando | O que cobre |
 | --- | --- | --- | --- |
 | Pacotes TypeScript | Vitest | `pnpm test` | Parser, classificação, ids estáveis, séries, busca, XMLTV, backup, PIN, validação de endereços |
-| Núcleo Kotlin | JUnit | `./gradlew :kotlin-core:test` | Mesmos arquivos de referência do TypeScript; backup cifrado gerado pela Web; EPG, busca, parental e PBKDF2 portados |
-| App Android TV | Robolectric + Compose UI Test | `./gradlew :android-tv:testDebugUnitTest` | Importação real em Room (arquivo, endereço via MockWebServer, gzip, Windows-1252), atualização sem duplicar, erros explicados, guia `url-tvg` automático e programa atual, backup Web ⇄ TV, parental, histórico; telas em 1920x1080 com capturas em `apps/android-tv/build/screenshots`; abrir o player e trocar de canal pelo D-pad |
-| Tizen | Vitest + Playwright | `pnpm --filter @tuitv/tizen test`, `pnpm build:tizen && pnpm test:tizen` | Compatibilidade do CSS com Chromium 69 e sintaxe ES2019; pacote aberto via `file://` em 1280×720, operado só por teclas (login, canal, Canal −, Voltar, fechar o app) |
+| Núcleo Kotlin | JUnit | `cd android && ./gradlew :core:test` | Mesmos arquivos de referência do TypeScript; backup cifrado gerado pela Web; EPG, busca, parental e PBKDF2 portados |
+| App Android TV | Robolectric + Compose UI Test | `cd android && ./gradlew :app:testDebugUnitTest` | Importação real em Room (arquivo, endereço via MockWebServer, gzip, Windows-1252), atualização sem duplicar, erros explicados, guia `url-tvg` automático e programa atual, backup Web ⇄ TV, parental, histórico; telas em 1920x1080 com capturas em `android/app/build/screenshots`; abrir o player e trocar de canal pelo D-pad |
+| Tizen | Vitest + Playwright | `pnpm --filter @tuitv/samsung test`, `pnpm build:samsung && pnpm test:samsung` | Compatibilidade do CSS com Chromium 69 e sintaxe ES2019; pacote aberto via `file://` em 1280×720, operado só por teclas (login, canal, Canal −, Voltar, fechar o app) |
 | Web, ponta a ponta | Playwright | `pnpm build && pnpm test:e2e` | Fluxos reais sobre o build estático, em desktop e celular |
 
-## Cenários de ponta a ponta (`apps/web/e2e/app.spec.ts`)
+## Cenários de ponta a ponta (`web/app/e2e/app.spec.ts`)
 
 - Primeiro acesso sem cadastro; menu na ordem do PRD.
 - Importação por arquivo, por endereço e por login (host, usuário e senha, com guia do mesmo login); categorias, filtro, favoritos; persistência após recarregar.
