@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import tv.tui.tuitv.ui.components.KeepScroll
 import tv.tui.tuitv.ui.components.ColumnPivot
 import tv.tui.tuitv.ui.components.EpisodeCard
 import tv.tui.tuitv.ui.components.EpisodeTile
@@ -241,6 +242,8 @@ private fun RowsColumn(state: LazyListState = rememberLazyListState(), content: 
     ColumnPivot(fraction = 0f, offsetPx = offset) {
         LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 64.dp), content = content)
     }
+    // As fileiras chegam depois de a tela abrir: ao voltar de um título, a rolagem não se perde.
+    KeepScroll(state)
 }
 
 @Composable

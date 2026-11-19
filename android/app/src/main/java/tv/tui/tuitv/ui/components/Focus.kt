@@ -6,7 +6,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -81,6 +88,27 @@ class RowsFocusMemory(row: String?, index: Int) {
 
 @Composable
 fun rememberRowsFocusMemory(key: String): RowsFocusMemory = rememberSaveable(key, saver = RowsFocusMemory.saver) { RowsFocusMemory(null, 0) }
+
+/**
+ * Volta à tela na mesma rolagem (no estilo Netflix): ao abrir um título e voltar, a lista reaparece
+ * onde o usuário estava. A posição do [state] já é guardada com a tela, mas se a lista for medida
+ * antes de os dados chegarem (vazia ou só com o topo), ela é perdida; aqui a posição guardada é
+ * reaplicada assim que houver itens suficientes. Se o usuário rolar antes disso, prevalece a dele.
+ */
+@Composable
+fun KeepScroll(state: LazyListState) {
+    val target = remember(state) { Snapshot.withoutReadObservation { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset } }
+    if (target.first == 0 && target.second == 0) return
+    LaunchedEffect(state) {
+        withTimeoutOrNull(RESTORE_TIMEOUT_MS) {
+            snapshotFlow { state.layoutInfo.totalItemsCount }.first { it > target.first }
+            if (!state.isScrollInProgress && state.firstVisibleItemIndex != target.first) state.scrollToItem(target.first, target.second)
+        }
+    }
+}
+
+/** Por quanto tempo a rolagem guardada espera os dados da tela (listas grandes, login remoto). */
+private const val RESTORE_TIMEOUT_MS = 4000L
 
 /** Curva de desaceleração usada em toda a rolagem pelo controle: rápida no início, suave no fim. */
 private val ScrollEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)

@@ -192,6 +192,8 @@ export function Row({ title, href, action, children }: { title: string; href?: s
         <div
           ref={ref}
           onScroll={update}
+          // Memória das telas: a rolagem horizontal da fileira volta junto (lib/screens.ts).
+          data-row-scroll={tv ? undefined : title}
           className={
             tv ? 'no-scrollbar overflow-hidden px-4 pt-1 pb-2 lg:px-12' : 'no-scrollbar flex gap-3 overflow-x-auto scroll-smooth px-4 pt-1 pb-2 lg:px-12'
           }

@@ -13,6 +13,10 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -128,6 +132,28 @@ class PhoneUiTest {
         waitFor("Nos favoritos")
         tap("Assistir")
         waitFor("Áudio e legendas")
+    }
+
+    @Test
+    fun voltarDaFichaMantemARolagemDosFilmes() {
+        // O problema relatado: descer bastante em Filmes, abrir um filme e voltar levava ao topo.
+        val list = File.createTempFile("catalogo", ".m3u").apply {
+            deleteOnExit()
+            writeText((listOf("#EXTM3U") + (1..120).flatMap { listOf("#EXTINF:-1 group-title=\"Filmes | Terror\",Terror $it (2020)", "http://vod.invalid/movie/u/p/$it.mp4") }).joinToString("\n"))
+        }
+        runBlocking { app.library.addPlaylistFile(Uri.fromFile(list), "catalogo.m3u", "Catálogo") }
+        show(Route.Movies)
+        waitFor("Terror 1 (2020)")
+        compose.onNode(hasScrollToIndexAction() and hasAnyDescendant(hasText("Terror 1 (2020)"))).performScrollToIndex(90)
+        compose.waitForIdle()
+        waitFor("Terror 91 (2020)")
+        tap("Terror 91 (2020)")
+        waitFor("Assistir")
+        compose.onNodeWithContentDescription("Voltar").performClick()
+        compose.waitForIdle()
+        waitFor("Terror 91 (2020)")
+        compose.onAllNodesWithText("Terror 91 (2020)").onFirst().assertIsDisplayed()
+        assertTrue(compose.onAllNodesWithText("Terror 1 (2020)").fetchSemanticsNodes().isEmpty())
     }
 
     @Test

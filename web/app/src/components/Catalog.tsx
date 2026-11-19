@@ -1,7 +1,7 @@
 'use client';
 
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GroupCount } from '@tuitv/business-rules';
 import { useRemoteConnection, useRemoteGroup, type RemoteLoad } from '@/lib/hooks';
@@ -11,8 +11,11 @@ import { POSTER_SLOT, Row, VirtualGrid } from './cards';
 import { Button, Dropdown, Empty, Notice, Spinner, cx } from './ui';
 import { isTv } from '@/lib/platform';
 import { whenIdle } from '@/lib/idle';
+import { replaceQuery, useScreenState } from '@/lib/screens';
 
 const ALL = '\u0000all';
+type Sort = 'list' | 'az' | 'year';
+const SORTS: Sort[] = ['list', 'az', 'year'];
 const ROW_HEIGHT = 372;
 const ROW_ITEMS = 24;
 
@@ -43,8 +46,37 @@ export function Catalog<T extends { group?: string; year?: number }>({
 }) {
   const t = useT();
   const params = useSearchParams();
-  const [group, setGroup] = useState(params.get('g') ?? ALL);
-  const [sort, setSort] = useState<'list' | 'az' | 'year'>('list');
+  const router = useRouter();
+  const pathname = usePathname() ?? '/';
+  // Categoria e ordem ficam no endereço (?g=Terror&o=az): ao voltar de um título, a tela reabre
+  // nelas — e a memória das telas (lib/screens.ts) devolve a rolagem e o cartão em foco.
+  const [group, setGroupState] = useState(params.get('g') ?? ALL);
+  const [sort, setSortState] = useState<Sort>(() => SORTS.find((s) => s === params.get('o')) ?? 'list');
+  const syncUrl = (g: string, o: Sort) => {
+    const query = new URLSearchParams();
+    if (g !== ALL) query.set('g', g);
+    if (o !== 'list') query.set('o', o);
+    replaceQuery(router, pathname, query);
+  };
+  // Link para a mesma tela com outra busca (ex.: "Filmes" no menu estando em Filmes › Terror):
+  // a tela não é remontada, então acompanha o endereço e volta ao topo.
+  const urlGroup = params.get('g') ?? ALL;
+  const urlSort = SORTS.find((s) => s === params.get('o')) ?? 'list';
+  useEffect(() => {
+    if (urlGroup === group && urlSort === sort) return;
+    setGroupState(urlGroup);
+    setSortState(urlSort);
+    window.scrollTo({ top: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlGroup, urlSort]);
+  const setGroup = (value: string) => {
+    setGroupState(value);
+    syncUrl(value, sort);
+  };
+  const setSort = (value: Sort) => {
+    setSortState(value);
+    syncUrl(group, value);
+  };
   const remote = useStore(hasRemote);
 
   const byGroup = useMemo(() => {
@@ -227,8 +259,9 @@ function TvCategoryRows<T>({
   onOpen: (group: string) => void;
   untitled: string;
 }) {
-  const [count, setCount] = useState(TV_ROWS_FIRST);
-  const [reached, setReached] = useState(0);
+  // Voltando de um título, as fileiras já montadas e a posição do foco voltam junto.
+  const [count, setCount] = useScreenState('tvRows', TV_ROWS_FIRST);
+  const [reached, setReached] = useScreenState('tvReached', 0);
   // Monta as próximas fileiras nas pausas, até [TV_ROWS_AHEAD] à frente do foco.
   const limit = Math.min(rows.length, reached + TV_ROWS_AHEAD);
   useEffect(() => {

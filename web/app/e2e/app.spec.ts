@@ -360,6 +360,46 @@ test('filmes, séries, temporadas, episódios assistidos e busca global', async 
   await expect(page.getByRole('link', { name: /Canal de Filmes 24h/ })).toBeVisible();
 });
 
+test('voltar de um filme reabre a categoria na mesma posição da rolagem', async ({ page }) => {
+  await allowLocalHosts(page);
+  await importByUrl(page, 'catalog.m3u', 'Catálogo');
+  await expect(page.getByText('importada: 480 itens')).toBeVisible({ timeout: 20_000 });
+  await page.goto('/movies/');
+  await choose(page, 'Categoria', /^Filmes \| Terror/);
+  await expect(page).toHaveURL(/\/movies\/\?g=Filmes\+%7C\+Terror$/);
+  await expect(page.locator('main a[title="Terror 1 (2020)"]')).toBeVisible();
+
+  // Desce bastante na grade (virtualizada) e abre um filme lá embaixo.
+  await page.mouse.wheel(0, 3000);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
+  // O cartão no meio da tela.
+  const middle = () =>
+    page.evaluate(() => {
+      const links = [...document.querySelectorAll<HTMLAnchorElement>('main a[title^="Terror"]')];
+      return links.find((a) => {
+        const r = a.getBoundingClientRect();
+        return r.top > window.innerHeight * 0.2 && r.bottom < window.innerHeight;
+      })?.title;
+    });
+  await expect.poll(middle).toBeTruthy();
+  const name = (await middle())!;
+  const y = await page.evaluate(() => window.scrollY);
+  await page.locator(`main a[title="${name}"]`).click();
+  await expect(page.getByTestId('player')).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/movies\/\?g=Filmes\+%7C\+Terror$/);
+  await expect(page.getByRole('button', { name: 'Categoria', exact: true })).toContainText('Terror');
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(y - 5);
+  expect(await page.evaluate(() => window.scrollY)).toBeLessThan(y + 5);
+  await expect(page.locator(`main a[title="${name}"]`)).toBeInViewport();
+
+  // Abrir a mesma tela pelo menu começa do topo.
+  await page.getByRole('navigation', { name: 'Menu principal' }).first().getByRole('link', { name: 'Filmes' }).click();
+  await expect(page).toHaveURL(/\/movies\/$/);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
 test('sinopse de filmes e séries vem do servidor da própria lista', async ({ page }) => {
   await allowLocalHosts(page);
   await importByUrl(page, 'xt.m3u', 'Servidor');

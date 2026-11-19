@@ -28,6 +28,17 @@ function big(count) {
   return lines.join('\n');
 }
 
+/** Catálogo de filmes com várias categorias cheias (memória das telas ao voltar de um título). */
+function catalog(perGroup) {
+  const lines = ['#EXTM3U'];
+  for (const group of ['Ação', 'Comédia', 'Drama', 'Terror']) {
+    for (let i = 1; i <= perGroup; i++) {
+      lines.push(`#EXTINF:-1 group-title="Filmes | ${group}",${group} ${i} (2020)`, `http://vod.invalid/movie/u/p/${group}-${i}.mp4`);
+    }
+  }
+  return lines.join('\n');
+}
+
 /**
  * Provedor Xtream Codes simulado (usuário "joão", senha "s&nha"): mesmos canais de basic.m3u,
  * mais filmes e uma série, servidos pela API player_api.php por categoria.
@@ -146,6 +157,7 @@ createServer((req, res) => {
     }
     if (path === '/epg.xml') return res.writeHead(200, { ...cors, 'content-type': 'text/xml' }).end(epg());
     if (path === '/big.m3u') return res.writeHead(200, cors).end(big(30000));
+    if (path === '/catalog.m3u') return res.writeHead(200, cors).end(catalog(120));
     if (path === '/nocors.m3u') {
       const body = readFileSync(new URL('basic.m3u', fixtures));
       return res.writeHead(200).end(body);

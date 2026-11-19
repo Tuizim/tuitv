@@ -8,6 +8,7 @@
  *    → volta ao topo da tela se ela estiver rolada → volta uma tela → na tela inicial, fecha o aplicativo.
  */
 import { runBack } from '@/lib/back';
+import { installScreenMemory, isRestoringScreen } from '@/lib/screens';
 import { preloadImages } from '@/lib/lazyImages';
 import { getLocation, subscribe, takeAnchor } from './router';
 
@@ -479,9 +480,14 @@ export function installRemote() {
   // Bolha: a interface (player, listas, menus) tem prioridade sobre a navegação espacial.
   window.addEventListener('keydown', onArrow);
 
+  // Voltar para uma tela já visitada: ela reaparece como foi deixada (rolagem e cartão em foco);
+  // o foco volta pelo mesmo caminho das setas, que também desliza o carrossel até o cartão.
+  installScreenMemory((el) => focus(el, false));
   // A cada troca de tela: rola para a âncora pedida ou devolve o foco ao conteúdo.
   subscribe(() => {
     window.setTimeout(() => {
+      // Volta com memória: a tela é restaurada por lib/screens.ts, não levada ao topo.
+      if (isRestoringScreen()) return;
       const anchor = takeAnchor();
       const el = anchor ? document.getElementById(anchor) : null;
       if (el) {

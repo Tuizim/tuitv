@@ -235,6 +235,7 @@ fun LiveScreen() {
     val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
     val memory = rememberFocusMemory("channels", groupKey)
     val listState = rememberLazyListState()
+    var shownGroup by rememberSaveable { mutableStateOf<String?>(null) }
     var focusContent by rememberContentFocus()
 
     val device = device()
@@ -265,7 +266,10 @@ fun LiveScreen() {
                         }
                     }
                     }
+                    // Só ao trocar de categoria: voltando de um canal, a lista fica onde estava.
                     LaunchedEffect(groupKey) {
+                        if (shownGroup == groupKey) return@LaunchedEffect
+                        shownGroup = groupKey
                         if (memory.index >= list.size) memory.index = 0
                         listState.scrollToItem(memory.index)
                     }
@@ -308,6 +312,8 @@ fun CatalogScreen(kind: ContentKind) {
     val (groupKey, setGroup) = rememberGroupKey(kind, groups)
     val memory = rememberFocusMemory(kind, groupKey)
     val gridState = rememberLazyGridState()
+    // Categoria cuja posição já foi aplicada; guardada com a tela para sobreviver à ida e volta.
+    var shownGroup by rememberSaveable(kind) { mutableStateOf<String?>(null) }
     var focusContent by rememberContentFocus()
     val title = if (kind == ContentKind.MOVIE) Txt.MOVIES else Txt.SERIES
 
@@ -370,7 +376,11 @@ fun CatalogScreen(kind: ContentKind) {
                         }
                     }
                     }
+                    // Só ao trocar de categoria: voltando de um título, a grade fica onde estava
+                    // (antes ela pulava para o cartão em foco, ou para o topo no celular).
                     LaunchedEffect(groupKey) {
+                        if (shownGroup == groupKey) return@LaunchedEffect
+                        shownGroup = groupKey
                         if (memory.index >= (count ?: 0)) memory.index = 0
                         gridState.scrollToItem(memory.index)
                     }

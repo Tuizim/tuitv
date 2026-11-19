@@ -329,6 +329,52 @@ test('fileiras: ▲▼ voltam ao cartão em que o usuário estava', async ({ pag
   expect(await focused(page)).toBe('B6');
 });
 
+test('Voltar da ficha do filme devolve o foco ao mesmo cartão (fileiras e grade da categoria)', async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.getByRole('switch', { name: 'Permitir endereços da rede local' }).click();
+  await page.evaluate(() => (location.hash = '#/playlists'));
+  await page.getByRole('button', { name: 'Adicionar lista' }).click();
+  await page.getByLabel('Nome').fill('Catálogo');
+  await page.getByLabel('Endereço M3U/M3U8').fill(`${FIXTURES}/catalog.m3u`);
+  await page.getByRole('button', { name: 'Importar', exact: true }).click();
+  await expect(page.getByText('importada: 480 itens')).toBeVisible({ timeout: 20_000 });
+
+  // Fileiras: desce duas fileiras e anda alguns cartões; abre a ficha e volta.
+  await page.evaluate(() => (location.hash = '#/movies'));
+  const first = page.locator('main a.group[href*="title"]').first();
+  await expect(first).toBeVisible();
+  await first.focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  const card = await focused(page);
+  expect(card).toContain('Drama 5');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('title-page')).toBeVisible();
+  await remote(page, BACK);
+  await expect.poll(() => focused(page)).toBe(card);
+  await expect(page.locator('main a.group:focus')).toBeInViewport();
+
+  // Grade de uma categoria: bem abaixo do topo; Voltar reabre a categoria no mesmo cartão.
+  await page.evaluate(() => (location.hash = `#/movies?g=${encodeURIComponent('Filmes | Terror')}`));
+  await expect(page.locator('main .tv-grid-row a.group').first()).toBeVisible();
+  await page.locator('main .tv-grid-row a.group').first().focus();
+  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowRight');
+  const deep = await focused(page);
+  expect(deep).toMatch(/Terror \d+/);
+  await page.waitForTimeout(800); // rolagem suave do foco
+  const y = await page.evaluate(() => window.scrollY);
+  expect(y).toBeGreaterThan(500);
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('title-page')).toBeVisible();
+  await remote(page, BACK);
+  await expect.poll(() => focused(page)).toBe(deep);
+  await expect(page.getByRole('button', { name: 'Categoria', exact: true })).toContainText('Terror');
+  expect(Math.abs((await page.evaluate(() => window.scrollY)) - y)).toBeLessThan(5);
+});
+
 test('Voltar como na Netflix: fecha o seletor sem sair da tela; seletor sem caixa de busca na TV', async ({ page }) => {
   const errors = await open(page);
   await login(page);

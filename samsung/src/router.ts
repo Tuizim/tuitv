@@ -7,6 +7,7 @@
  * e o botão Voltar do controle usa history.back().
  */
 import { useSyncExternalStore } from 'react';
+import { notePush } from '@/lib/screens';
 
 export interface RouteLocation {
   /** Sempre com "/" inicial e sem "/" final (exceto a raiz). */
@@ -81,6 +82,8 @@ export function navigate(href: string, options: { replace?: boolean } = {}) {
     window.history.replaceState(window.history.state, '', target);
     update();
   } else if (window.location.hash !== target) {
+    // Navegação nova: o popstate que a troca de hash dispara não é uma volta (lib/screens.ts).
+    notePush(target.slice(1));
     window.location.hash = target;
   } else {
     update();

@@ -25,6 +25,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useBackLayer } from '@/lib/back';
+import { installScreenMemory } from '@/lib/screens';
 import { useUi } from '@/lib/hooks';
 import { importErrorText, useT } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
@@ -110,6 +111,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     void init();
   }, [init]);
+  // Voltar reabre cada tela como o usuário a deixou (rolagem, cartão em foco, fileiras).
+  useEffect(() => installScreenMemory(), []);
 
   // Atualização automática das listas e guias remotos: ao abrir e a cada 30 minutos.
   useEffect(() => {
