@@ -30,12 +30,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import tv.tui.core.ContentKind
 import tv.tui.core.GroupCount
 import tv.tui.core.MediaItem
@@ -98,6 +97,16 @@ private fun rememberGroupKey(key: Any, groups: List<GroupCount>?): Pair<String, 
 private fun itemsFor(library: tv.tui.tuitv.data.Library, kind: ContentKind, groupKey: String): kotlinx.coroutines.flow.Flow<List<MediaItem>?> =
     if (groupKey == PENDING) kotlinx.coroutines.flow.flowOf(null) else library.items(kind, filterOf(groupKey))
 
+/**
+ * Conteúdo da categoria [key]: null até ele chegar. Sem isso, a lista da categoria anterior ficava
+ * na tela enquanto a nova carregava, e o OK numa categoria levava o foco a um item que logo sumia.
+ */
+@Composable
+private fun <T> rememberForGroup(key: Any, flow: () -> kotlinx.coroutines.flow.Flow<T?>): T? {
+    val loaded by remember(key) { flow().map { key to it } }.collectAsStateWithLifecycle(null)
+    return loaded?.takeIf { it.first == key }?.second
+}
+
 /** Categoria vazia — ou, com login, a falha ao consultar o servidor. */
 @Composable
 private fun emptyText(): String {
@@ -106,17 +115,11 @@ private fun emptyText(): String {
 }
 
 /**
- * Coluna de categorias. A categoria em foco é aplicada após uma breve pausa (navegação rápida
- * pelo controle não dispara consultas a cada passo); OK aplica na hora e leva o foco ao conteúdo.
+ * Coluna de categorias. Passar o foco por uma categoria não a escolhe: só o OK (ou o toque)
+ * troca a categoria e leva o foco ao conteúdo.
  */
 @Composable
 private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (String) -> Unit, onOpen: () -> Unit, modifier: Modifier = Modifier, width: Int = 260) {
-    var pending by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(pending) {
-        val key = pending ?: return@LaunchedEffect
-        delay(350)
-        onSelect(key)
-    }
     val memory = rememberFocusMemory("groups")
     val state = rememberLazyListState()
     val showAll = allowAll()
@@ -141,9 +144,7 @@ private fun GroupColumn(groups: List<GroupCount>?, selected: String, onSelect: (
                 // Categorias de login ainda não carregadas não têm contagem.
                 trailing = group.count.takeIf { it > 0 }?.let(Txt::number),
                 selected = key == selected,
-                onFocus = { pending = key },
                 onClick = {
-                    pending = null
                     onSelect(key)
                     onOpen()
                 },
@@ -231,7 +232,7 @@ fun LiveScreen() {
     val toggleFavorite = rememberFavoriteToggle()
     val groups by remember { library.groups(ContentKind.LIVE) }.collectAsStateWithLifecycle(null)
     val (groupKey, setGroup) = rememberGroupKey("live", groups)
-    val items by remember(groupKey) { itemsFor(library, ContentKind.LIVE, groupKey) }.collectAsStateWithLifecycle(null)
+    val items = rememberForGroup(groupKey) { itemsFor(library, ContentKind.LIVE, groupKey) }
     val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
     val memory = rememberFocusMemory("channels", groupKey)
     val listState = rememberLazyListState()
@@ -317,16 +318,16 @@ fun CatalogScreen(kind: ContentKind) {
     var focusContent by rememberContentFocus()
     val title = if (kind == ContentKind.MOVIE) Txt.MOVIES else Txt.SERIES
 
-    val movies by remember(groupKey, kind) {
+    val movies = rememberForGroup(groupKey to kind) {
         if (kind == ContentKind.MOVIE) itemsFor(library, kind, groupKey) else kotlinx.coroutines.flow.flowOf(emptyList())
-    }.collectAsStateWithLifecycle(null)
-    val series by remember(groupKey, kind) {
+    }
+    val series = rememberForGroup(groupKey to kind) {
         when {
             kind != ContentKind.SERIES -> kotlinx.coroutines.flow.flowOf(emptyList())
             groupKey == PENDING -> kotlinx.coroutines.flow.flowOf(null)
             else -> library.series(filterOf(groupKey))
         }
-    }.collectAsStateWithLifecycle(null)
+    }
 
     val count = if (kind == ContentKind.MOVIE) movies?.size else series?.size
     val device = device()
@@ -385,92 +386,6 @@ fun CatalogScreen(kind: ContentKind) {
                         gridState.scrollToItem(memory.index)
                     }
                     if (focusContent) RequestFocus(memory.requester, groupKey) { focusContent = false }
-                }
-            }
-        }
-    }
-}
-
-/** Guia de programação: categorias, canais com o programa atual e a grade do canal em foco. */
-@Composable
-fun GuideScreen() {
-    val library = library()
-    val navigator = navigator()
-    val sources by library.epgSources.collectAsStateWithLifecycle()
-    val groups by remember { library.groups(ContentKind.LIVE) }.collectAsStateWithLifecycle(null)
-    val (groupKey, setGroup) = rememberGroupKey("guide", groups)
-    val items by remember(groupKey) { itemsFor(library, ContentKind.LIVE, groupKey) }.collectAsStateWithLifecycle(null)
-    val epgVersion by library.epgVersion.collectAsStateWithLifecycle(0)
-    var focused by remember { mutableStateOf<MediaItem?>(null) }
-    val memory = rememberFocusMemory("guide", groupKey)
-    var focusContent by rememberContentFocus()
-
-    val device = device()
-    Column(Modifier.fillMaxSize().padding(horizontal = device.gutter)) {
-        ScreenTitle(Txt.GUIDE, subtitle = if (sources.isEmpty()) "Nenhum guia (XMLTV) adicionado. Adicione um em Listas." else null)
-        WithGroups(groups, groupKey, setGroup, onOpen = { focusContent = true }, columnWidth = 220) {
-            val list = items
-            when {
-                list == null -> Loading(Modifier.weight(1f))
-                list.isEmpty() -> EmptyState(emptyText(), Modifier.weight(1f))
-                else -> {
-                    ColumnPivot {
-                    // Celular: só os canais com o programa atual (a grade não cabe ao lado).
-                    LazyColumn(
-                        (if (device.compact) Modifier.weight(1f) else Modifier.width(if (device.tv) 360.dp else 300.dp)).fillMaxHeight().focusRestorer(memory.requester),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp),
-                    ) {
-                        itemsIndexed(list, key = { _, item -> item.id }) { index, item ->
-                            ChannelRow(
-                                number = index + 1,
-                                item = item,
-                                epgVersion = epgVersion,
-                                onClick = { navigator.play(list, item) },
-                                onLongClick = {},
-                                modifier = memory.item(index).onFocusChanged { if (it.isFocused) focused = item },
-                            )
-                        }
-                    }
-                    }
-                    if (focusContent) RequestFocus(memory.requester, groupKey) { focusContent = false }
-                    if (!device.compact) {
-                        Spacer(Modifier.width(20.dp))
-                        Schedule(focused, epgVersion, Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Schedule(item: MediaItem?, epgVersion: Int, modifier: Modifier) {
-    val library = library()
-    val programmes by produceState<List<Programme>?>(null, item?.id, epgVersion) {
-        val now = System.currentTimeMillis()
-        value = item?.let { library.schedule(it, now - 3_600_000L, now + 24 * 3_600_000L) }
-    }
-    Column(modifier.fillMaxHeight().padding(top = 8.dp)) {
-        if (item == null) return@Column
-        Text(item.name, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        val list = programmes
-        when {
-            list == null -> Muted(Txt.LOADING)
-            list.isEmpty() -> Muted("Sem programação para este canal.")
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                val now = System.currentTimeMillis()
-                itemsIndexed(list, key = { _, p -> p.rowId }) { _, p ->
-                    val live = p.start <= now && p.stop > now
-                    Column(Modifier.fillMaxWidth()) {
-                        Text(
-                            "${Txt.time(p.start)} – ${Txt.time(p.stop)}   ${p.title}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (live) TuiColors.Cyan else TuiColors.White,
-                        )
-                        p.description?.let { Muted(it, maxLines = 2) }
-                    }
                 }
             }
         }

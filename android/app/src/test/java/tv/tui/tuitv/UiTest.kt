@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.isDialog
@@ -217,9 +218,6 @@ class UiTest {
         show(Route.Search)
         waitFor("Pesquisar")
         shot("09-busca")
-        show(Route.Guide)
-        waitFor("Canal Um HD")
-        shot("10-guia")
     }
 
     /** Texto do elemento que está com o foco do controle. */
@@ -238,7 +236,7 @@ class UiTest {
         // ◀ leva às categorias, na categoria em uso.
         press(NativeKeyEvent.KEYCODE_DPAD_LEFT)
         assertTrue(focused(), focused().startsWith(Txt.ALL))
-        // ▼ percorre as categorias; a lista troca após a pausa, mas o foco continua na coluna.
+        // ▼ percorre as categorias sem escolhê-las: o foco continua na coluna e a lista não muda.
         press(NativeKeyEvent.KEYCODE_DPAD_DOWN)
         val category = focused()
         compose.mainClock.advanceTimeBy(1500)
@@ -247,6 +245,8 @@ class UiTest {
         val second = focused()
         compose.mainClock.advanceTimeBy(1500)
         assertEquals(second, focused())
+        // "Todos" continua escolhido: os canais de outras categorias seguem na lista.
+        compose.onAllNodesWithText("Notícias 24h").assertCountEquals(1)
         // OK confirma a categoria e leva o foco ao primeiro canal dela.
         press(NativeKeyEvent.KEYCODE_DPAD_CENTER)
         compose.mainClock.advanceTimeBy(800)

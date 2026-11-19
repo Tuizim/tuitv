@@ -180,8 +180,11 @@ for (const [dpi, k] of Object.entries(densities)) {
   // Monocromático (Android 13+): o mesmo desenho branco; o sistema aplica a cor do tema.
   await write(`${res}/mipmap-${dpi}/ic_launcher_monochrome.png`, await appTile(fg, fg, 0.56, { background: false }));
 }
-// Banner 16:9 do launcher do Android TV (320x180 dp em xhdpi): o ícone do aplicativo em formato largo.
-await write(`${res}/drawable-xhdpi/banner.png`, await appTile(640, 360, 0.82));
+// Banner 16:9 do launcher do Android TV e da Fire TV (320x180 dp): o ícone do aplicativo em formato largo.
+// Em todas as densidades: com só o xhdpi, aparelhos 4K/xxhdpi (Fire TV) ampliavam a imagem e ela ficava borrada.
+for (const [dpi, k] of Object.entries(densities)) {
+  await write(`${res}/drawable-${dpi}/banner.png`, await appTile(320 * k, 180 * k, 0.82));
+}
 // Imagens usadas nas telas (tela de abertura, menu, boas-vindas).
 await write(`${res}/drawable-nodpi/tuitv_icone.webp`, sharp(await cat(288)).webp({ quality: 92, alphaQuality: 100 }));
 await write(`${res}/drawable-nodpi/tuitv_logo.webp`, sharp(await logo(256)).webp({ quality: 92, alphaQuality: 100 }));

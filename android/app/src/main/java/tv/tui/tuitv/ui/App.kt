@@ -87,7 +87,6 @@ import tv.tui.tuitv.ui.components.ProgressLine
 import tv.tui.tuitv.ui.player.PlayerScreen
 import tv.tui.tuitv.ui.screens.CatalogScreen
 import tv.tui.tuitv.ui.screens.FavoritesScreen
-import tv.tui.tuitv.ui.screens.GuideScreen
 import tv.tui.tuitv.ui.screens.HistoryScreen
 import tv.tui.tuitv.ui.screens.HomeScreen
 import tv.tui.tuitv.ui.screens.MoreScreen
@@ -423,7 +422,6 @@ private fun Screen(route: Route) {
         Route.Live -> LiveScreen()
         Route.Movies -> CatalogScreen(ContentKind.MOVIE)
         Route.Series -> CatalogScreen(ContentKind.SERIES)
-        Route.Guide -> GuideScreen()
         Route.Search -> SearchScreen()
         Route.Favorites -> FavoritesScreen()
         Route.History -> HistoryScreen()

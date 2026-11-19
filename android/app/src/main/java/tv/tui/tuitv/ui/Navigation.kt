@@ -25,7 +25,6 @@ sealed interface Route {
     data object Live : Route
     data object Movies : Route
     data object Series : Route
-    data object Guide : Route
     data object Search : Route
     data object Favorites : Route
     data object History : Route
@@ -48,7 +47,6 @@ val destinations = listOf(
     Destination(Route.Live, Txt.LIVE, TuiIcons.LiveTv),
     Destination(Route.Movies, Txt.MOVIES, TuiIcons.Movie),
     Destination(Route.Series, Txt.SERIES, TuiIcons.Series),
-    Destination(Route.Guide, Txt.GUIDE, TuiIcons.Guide),
     Destination(Route.Search, Txt.SEARCH, Icons.Filled.Search),
     Destination(Route.Favorites, Txt.FAVORITES, Icons.Filled.Favorite),
     Destination(Route.History, Txt.HISTORY, TuiIcons.History),
@@ -70,7 +68,6 @@ val touchTabs = listOf(
 /** Itens da tela "Mais", na ordem em que aparecem. */
 val moreDestinations = listOf(
     Destination(Route.History, Txt.HISTORY, TuiIcons.History),
-    Destination(Route.Guide, Txt.GUIDE, TuiIcons.Guide),
     Destination(Route.Playlists, Txt.PLAYLISTS, TuiIcons.Playlists),
     Destination(Route.Settings, Txt.SETTINGS, Icons.Filled.Settings),
 )

@@ -17,7 +17,6 @@ object Txt {
     const val LIVE = "Ao vivo"
     const val MOVIES = "Filmes"
     const val SERIES = "Séries"
-    const val GUIDE = "Guia"
     const val SEARCH = "Busca"
     const val FAVORITES = "Favoritos"
     const val HISTORY = "Histórico"
